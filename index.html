@@ -156,7 +156,7 @@ B           hangar (buy and fly planes)
 F           refuel on the ground (1 coin per 1%)
 R           restart (keeps your fuel)
 N           fly to the waypoint, or the contract (click the minimap to set a waypoint)
-V           back flip: a full loop backwards (needs speed, in the air)
+V           back flip: a full loop backwards, +50 coins (needs speed, in the air)
 T           teleport menu</div>
 <script>
 // ---------- canvas setup
@@ -1083,7 +1083,8 @@ let teleportOpen = false;
 // short message shown under the systems panel, so key presses that do nothing still explain why
 let noteText = '', noteUntil = 0;
 function flashNote(text) { noteText = text; noteUntil = performance.now() + 3000; }
-// back flip: the nose keeps climbing over the top until the plane has turned a full circle
+// back flip: the nose keeps climbing over the top until the plane has turned a full circle. A finished loop pays FLIP_PAY coins.
+const FLIP_PAY = 50;
 function startFlip() {
   const p = plane;
   if (p.crashed) { flashNote('CRASHED: PRESS R TO RESTART'); return; }
@@ -1213,6 +1214,12 @@ function update(dt) {
     p.pitch += step;
     p.flip.turned += step;
     if (p.flip.turned >= Math.PI * 2 || p.onGround) {
+      // a finished loop in the air pays out; touching down first does not
+      if (p.flip.turned >= Math.PI * 2 && !p.onGround) {
+        save.coins += FLIP_PAY;
+        writeSave();
+        flashNote(`BACK FLIP +${FLIP_PAY} COINS`);
+      }
       p.flip = null;
       p.pitch = wrapPi(p.pitch);
     }
