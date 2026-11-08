@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plane the Plane · Admin</title>
+<style>
+  :root { --bg: #0b1020; --card: #101a2b; --line: #2a3d5c; --text: #e8fff5; --muted: #8fa8c8; --accent: #3ddc97; --ink: #06201a; --bad: #ff8a8a; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-monospace, Menlo, Consolas, monospace; min-height: 100vh; }
+  main { max-width: 880px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  label { display: grid; gap: 4px; font-size: 13px; margin: 10px 0; }
+  input { font: inherit; background: #0b1424; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; max-width: 320px; }
+  button { background: var(--accent); color: var(--ink); border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; margin: 4px 6px 0 0; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  a { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .wrap { overflow-x: auto; }
+  .hint { color: var(--muted); font-size: 13px; }
+  .err { color: var(--bad); font-size: 13px; min-height: 1em; }
+  .hidden { display: none; }
+  @media (max-width: 600px) { th, td { font-size: 12px; padding: 4px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Plane the Plane · Admin</h1>
+  <p class="sub">Who has signed up to play in this browser.</p>
+
+  <section id="gate" class="card">
+    <p class="hint">Sign in as the admin pilot, human.</p>
+    <label>Pilot name <input id="name" value="human" autocomplete="username"></label>
+    <label>Password <input id="pass" type="password" autocomplete="current-password"></label>
+    <button id="enter">Sign in</button>
+    <p class="err" id="err"></p>
+  </section>
+
+  <section id="panel" class="hidden">
+    <div class="card">
+      <p class="hint" id="count"></p>
+      <div class="wrap">
+        <table>
+          <thead><tr><th>Pilot</th><th>Signed up</th><th>Last sign-in</th><th>Level</th><th>Coins</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <button id="refresh" class="ghost">Refresh</button>
+      <button id="signout" class="ghost">Sign out</button>
+      <a href="index.html">Back to the game</a>
+    </div>
+  </section>
+</main>
+<script>
+// The game keeps pilots and saves in this browser's storage, under the same site, so this page reads the same data.
+const PILOTS_KEY = 'plane-the-plane-pilots';
+const SAVE_PREFIX = 'plane-the-plane-save:';
+const ADMIN_PILOT = 'human';
+const $ = id => document.getElementById(id);
+const readJSON = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } };
+const pilotsOf = () => readJSON(PILOTS_KEY, {});
+const when = iso => iso ? new Date(iso).toLocaleString() : 'never';
+// the password is checked against the same SHA-256 hash the game stores
+const hashPassword = async (salt, password) => {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + password)));
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+async function enter() {
+  const err = $('err');
+  err.textContent = '';
+  if ($('name').value.trim().toLowerCase() !== ADMIN_PILOT) { err.textContent = 'Only the admin pilot can open this page.'; return; }
+  if (!window.crypto || !crypto.subtle) { err.textContent = 'Open this page over https or on localhost.'; return; }
+  const p = pilotsOf()[ADMIN_PILOT];
+  if (!p) { err.textContent = 'No admin pilot yet. Create human in the game first.'; return; }
+  if ((await hashPassword(p.salt, $('pass').value)) !== p.hash) { err.textContent = 'Wrong password.'; return; }
+  $('pass').value = '';
+  $('gate').classList.add('hidden');
+  $('panel').classList.remove('hidden');
+  render();
+}
+
+function render() {
+  const list = Object.values(pilotsOf()).sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+  const rows = $('rows');
+  rows.innerHTML = '';
+  for (const p of list) {
+    const s = readJSON(SAVE_PREFIX + p.name.toLowerCase(), {});
+    const tr = document.createElement('tr');
+    for (const v of [p.name, when(p.created), when(p.lastSignIn), 1 + Math.floor((s.xp || 0) / 500), s.coins ?? '-']) {
+      const td = document.createElement('td');
+      td.textContent = v;
+      tr.append(td);
+    }
+    rows.append(tr);
+  }
+  $('count').textContent = `${list.length} pilot${list.length === 1 ? '' : 's'} signed up in this browser.`;
+}
+
+$('enter').onclick = enter;
+$('pass').addEventListener('keydown', e => { if (e.key === 'Enter') enter(); });
+$('refresh').onclick = render;
+$('signout').onclick = () => location.reload();
+</script>
+</body>
+</html>

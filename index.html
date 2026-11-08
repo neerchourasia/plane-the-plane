@@ -43,14 +43,6 @@
   #home .homeBtns{display:grid;gap:8px;margin:16px 0}
   #home button{background:#3ddc97;border:0;border-radius:6px;padding:10px 14px;font:inherit;color:#06201a;cursor:pointer}
   #home #homeFly{font-size:18px;font-weight:bold}
-  #admin{position:fixed;inset:0;z-index:40;background:rgba(5,10,20,.92);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
-  #admin .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;width:min(640px,94vw);max-height:90vh;overflow:auto}
-  #admin h2{margin:0 0 6px;font-size:22px}
-  #admin label{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  #admin input{font:inherit;background:#0b1424;color:#e8fff5;border:1px solid #2a3d5c;border-radius:4px;padding:3px 6px;max-width:220px}
-  #admin button{background:#3ddc97;border:0;border-radius:6px;padding:6px 14px;font:inherit;color:#06201a;cursor:pointer;margin:2px}
-  #admin table{width:100%;border-collapse:collapse;font-size:13px}
-  #admin th,#admin td{text-align:left;padding:4px 8px;border-bottom:1px solid #2a3d5c}
   #livery canvas{position:static;width:100%;height:auto;background:#0b1424;border-radius:8px;margin:10px 0;display:block}
   #livery button{background:#3ddc97;border:0;border-radius:6px;padding:6px 10px;font:inherit;color:#06201a;cursor:pointer;margin:2px}
   #livery button:disabled{background:#2a3d5c;color:#7d8ea0;cursor:default}
@@ -130,14 +122,6 @@
     </div>
     <p id="loginMsg" class="hint"></p>
     <div id="pilots"></div>
-  </div>
-</div>
-<div id="admin">
-  <div class="card">
-    <h2>Admin</h2>
-    <p class="hint" id="adminCount"></p>
-    <table id="adminTable"></table>
-    <div><button id="adminDone">Close</button></div>
   </div>
 </div>
 <div id="hangar">
@@ -2409,44 +2393,6 @@ document.getElementById('loginPass').addEventListener('keydown', e => { if (e.ke
 document.getElementById('switchPilot').onclick = showLogin;
 renderPilots();
 
-// ---------- admin: who has signed up in this browser. Only the Admin button for the pilot human opens it.
-function showAdmin() {
-  document.getElementById('admin').style.display = 'flex';
-  renderAdminTable();
-}
-function hideAdmin() { document.getElementById('admin').style.display = 'none'; }
-function renderAdminTable() {
-  const list = Object.values(pilotsOf()).sort((a, b) => (a.created || '').localeCompare(b.created || ''));
-  const when = iso => iso ? new Date(iso).toLocaleString() : 'never';
-  const table = document.getElementById('adminTable');
-  table.innerHTML = '';
-  const head = document.createElement('tr');
-  for (const h of ['Pilot', 'Signed up', 'Last sign-in', 'Level', 'Coins']) {
-    const th = document.createElement('th');
-    th.textContent = h;
-    head.append(th);
-  }
-  table.append(head);
-  for (const p of list) {
-    const s = readJSON(pilotKey(p.name), {});
-    const row = document.createElement('tr');
-    for (const v of [p.name, when(p.created), when(p.lastSignIn), 1 + Math.floor((s.xp || 0) / 500), s.coins ?? '-']) {
-      const td = document.createElement('td');
-      td.textContent = v;
-      row.append(td);
-    }
-    table.append(row);
-  }
-  document.getElementById('adminCount').textContent = `${list.length} pilot${list.length === 1 ? '' : 's'} signed up in this browser.`;
-}
-// the Admin button in the hangar opens the list for every signed-in pilot
-document.getElementById('openAdmin').onclick = showAdmin;
-document.getElementById('homeFly').onclick = hideHome;
-document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar(); };
-document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
-document.getElementById('homeAdmin').onclick = showAdmin;
-document.getElementById('homeSwitch').onclick = showLogin;
-document.getElementById('adminDone').onclick = hideAdmin;
 
 // ---------- main loop
 let last = performance.now();
