@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <g transform="translate(30 27) rotate(35) scale(0.7) translate(-30 -30)" fill="#1f2937">
+    <path d="M4 30 L58 30 L62 26 L62 34 L58 30 Z"/>
+    <path d="M26 30 L18 6 L25 6 L38 30 Z"/>
+    <path d="M26 30 L18 54 L25 54 L38 30 Z"/>
+    <path d="M6 30 L3 18 L9 18 L14 30 Z"/>
+    <rect x="6" y="27" width="50" height="6" rx="3"/>
+  </g>
+  <polygon points="46,40 49,45 55,42 53,48 58,52 52,53 52,59 47,55 42,58 43,52 37,50 42,47 40,41" fill="#ef4444"/>
+  <polygon points="46,45 48,48 52,47 50,50 53,53 49,53 48,56 46,53 43,54 44,51 41,49 45,48" fill="#f59e0b"/>
+</svg>
