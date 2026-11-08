@@ -2392,6 +2392,13 @@ document.getElementById('loginIn').onclick = () => submitLogin(false);
 document.getElementById('loginNew').onclick = () => submitLogin(true);
 document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(false); });
 document.getElementById('switchPilot').onclick = showLogin;
+// home screen buttons
+document.getElementById('homeFly').onclick = hideHome;
+document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar(); };
+document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
+document.getElementById('homeAdmin').onclick = () => { location.href = 'admin.html'; };
+document.getElementById('homeSwitch').onclick = showLogin;
+document.getElementById('openAdmin').onclick = () => { location.href = 'admin.html'; };
 renderPilots();
 
 
