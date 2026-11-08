@@ -156,6 +156,7 @@ B           hangar (buy and fly planes)
 F           refuel on the ground (1 coin per 1%)
 R           restart (keeps your fuel)
 N           fly to the waypoint, or the contract (click the minimap to set a waypoint)
+V           back flip: a full loop backwards (needs speed, in the air)
 T           teleport menu</div>
 <script>
 // ---------- canvas setup
@@ -723,6 +724,7 @@ addEventListener('keydown', e => {
   if (PREVENT.includes(e.code)) e.preventDefault();
   if (e.code === 'KeyR' && !e.repeat) resetPlane(plane.fuel);   // restarting keeps the fuel you have
   if (e.code === 'KeyN' && !e.repeat) toggleNav();
+  if (e.code === 'KeyV' && !e.repeat) startFlip();
   if (e.code === 'KeyF' && !e.repeat) refuel();
   if (e.code === 'KeyC' && !e.repeat) view = (view + 1) % VIEW_NAMES.length;
   if (e.code === 'KeyG' && !e.repeat) toggleGear();
@@ -1081,6 +1083,17 @@ let teleportOpen = false;
 // short message shown under the systems panel, so key presses that do nothing still explain why
 let noteText = '', noteUntil = 0;
 function flashNote(text) { noteText = text; noteUntil = performance.now() + 3000; }
+// back flip: the nose keeps climbing over the top until the plane has turned a full circle
+function startFlip() {
+  const p = plane;
+  if (p.crashed) { flashNote('CRASHED: PRESS R TO RESTART'); return; }
+  if (p.onGround) { flashNote('TAKE OFF FIRST, THEN PRESS V'); return; }
+  if (p.flip) return;
+  if (p.speed < 45) { flashNote('NEED MORE SPEED FOR A BACK FLIP'); return; }
+  p.flip = { turned: 0 };
+  p.ap = null;
+  flashNote('BACK FLIP');
+}
 function toggleNav() {
   const p = plane;
   if (p.ap && p.ap.wp) { p.ap = null; flashNote('NAV OFF'); return; }
@@ -1195,7 +1208,17 @@ function update(dt) {
 
   p.throttle = clamp(p.throttle + throttleIn * 0.5 * dt, 0, 1);
   p.fuel = Math.max(0, p.fuel - (0.004 * p.throttle + 0.0005) * dt);   // full throttle empties the tank in about 4 minutes
-  p.pitch = clamp(p.pitch + pitchIn * 1.0 * auth * dt, -1.4, 1.4);
+  if (p.flip) {
+    const step = 1.3 * dt;   // about five seconds for the whole loop
+    p.pitch += step;
+    p.flip.turned += step;
+    if (p.flip.turned >= Math.PI * 2 || p.onGround) {
+      p.flip = null;
+      p.pitch = wrapPi(p.pitch);
+    }
+  } else {
+    p.pitch = clamp(p.pitch + pitchIn * 1.0 * auth * dt, -1.4, 1.4);
+  }
   p.roll = rollIn
     ? clamp(p.roll - rollIn * 1.6 * auth * dt, -1.5, 1.5)
     : p.roll * Math.exp(-1.5 * dt);                 // wings self-center when released
