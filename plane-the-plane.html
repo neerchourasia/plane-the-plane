@@ -1,0 +1,2474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plane the Plane</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1020;overflow:hidden;font-family:ui-monospace,Menlo,Consolas,monospace}
+  canvas{display:block;position:fixed;left:0;top:0;width:100vw;height:100vh}
+  #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
+  #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #hangar .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;min-width:320px;max-height:92vh;overflow:auto}
+  #hangar h2{margin:0 0 6px;font-size:22px}
+  #hangar .row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid #22324d}
+  #hangar button{background:#3ddc97;border:0;border-radius:6px;padding:6px 14px;font:inherit;color:#06201a;cursor:pointer}
+  #hangar button:disabled{background:#2a3d5c;color:#7d8ea0;cursor:default}
+  #hangar .hint{color:#8fb3c9;font-size:12px;margin:12px 0 0}
+  #teleport{position:fixed;inset:0;z-index:20;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #teleport .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;min-width:320px}
+  #teleport h2{margin:0 0 6px;font-size:22px}
+  #teleport .row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid #22324d}
+  #teleport button{background:#3ddc97;border:0;border-radius:6px;padding:6px 14px;font:inherit;color:#06201a;cursor:pointer}
+  #teleport .hint{color:#8fb3c9;font-size:12px;margin:12px 0 0}
+  #livery{position:fixed;inset:0;z-index:20;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace;overflow:auto}
+  #livery .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;width:min(560px,92vw)}
+  #livery h2{margin:0 0 6px;font-size:22px}
+  #livery h3{margin:14px 0 4px}
+  #livery .lvgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:13px}
+  #livery label{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  #livery input,#livery select,#hangar select{font:inherit;background:#0b1424;color:#e8fff5;border:1px solid #2a3d5c;border-radius:4px;padding:3px 6px;max-width:150px}
+  #livery input[type=color]{width:60px;height:26px;padding:0}
+  #login{position:fixed;inset:0;z-index:30;background:rgba(5,10,20,.92);display:flex;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #login .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;width:min(420px,92vw)}
+  #login h2{margin:0 0 6px;font-size:22px}
+  #login .fields{display:grid;gap:8px;margin:12px 0}
+  #login label{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  #login input{font:inherit;background:#0b1424;color:#e8fff5;border:1px solid #2a3d5c;border-radius:4px;padding:3px 6px;max-width:220px}
+  #login button,#hangar #switchPilot{background:#3ddc97;border:0;border-radius:6px;padding:6px 14px;font:inherit;color:#06201a;cursor:pointer;margin:2px}
+  #hangar #switchPilot{margin:6px 0}
+  #home{position:fixed;inset:0;z-index:25;background:rgba(5,10,20,.9);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #home .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:24px 28px;width:min(420px,92vw);text-align:center}
+  #home h2{margin:0 0 6px;font-size:26px}
+  #home .homeBtns{display:grid;gap:8px;margin:16px 0}
+  #home button{background:#3ddc97;border:0;border-radius:6px;padding:10px 14px;font:inherit;color:#06201a;cursor:pointer}
+  #home #homeFly{font-size:18px;font-weight:bold}
+  #admin{position:fixed;inset:0;z-index:40;background:rgba(5,10,20,.92);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #admin .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;width:min(640px,94vw);max-height:90vh;overflow:auto}
+  #admin h2{margin:0 0 6px;font-size:22px}
+  #admin label{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  #admin input{font:inherit;background:#0b1424;color:#e8fff5;border:1px solid #2a3d5c;border-radius:4px;padding:3px 6px;max-width:220px}
+  #admin button{background:#3ddc97;border:0;border-radius:6px;padding:6px 14px;font:inherit;color:#06201a;cursor:pointer;margin:2px}
+  #admin table{width:100%;border-collapse:collapse;font-size:13px}
+  #admin th,#admin td{text-align:left;padding:4px 8px;border-bottom:1px solid #2a3d5c}
+  #livery canvas{position:static;width:100%;height:auto;background:#0b1424;border-radius:8px;margin:10px 0;display:block}
+  #livery button{background:#3ddc97;border:0;border-radius:6px;padding:6px 10px;font:inherit;color:#06201a;cursor:pointer;margin:2px}
+  #livery button:disabled{background:#2a3d5c;color:#7d8ea0;cursor:default}
+  #livery #lvPresets{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
+  #livery .row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #22324d}
+  #livery .hint{color:#8fb3c9;font-size:12px}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="gl"></canvas>
+<canvas id="fx"></canvas>
+<div id="livery">
+  <div class="card">
+    <h2>Livery maker</h2>
+    <div class="lvgrid">
+      <label>Plane <select id="lvModel"></select></label>
+      <label>Name <input id="lvName" maxlength="24"></label>
+      <label>Body <input type="color" id="lvBody"></label>
+      <label>Stripe <input type="color" id="lvStripe"></label>
+      <label>Wings and tail <input type="color" id="lvWing"></label>
+      <label>Fin <input type="color" id="lvFin"></label>
+    </div>
+    <div id="lvPresets"></div>
+    <div class="lvgrid">
+      <label>Body logo <input type="file" id="lvPicBody" accept="image/*"></label>
+      <button id="lvPicBodyClear">Remove</button>
+      <label>Tail logo <input type="file" id="lvPicTail" accept="image/*"></label>
+      <button id="lvPicTailClear">Remove</button>
+      <label>Wing logo <input type="file" id="lvPicWing" accept="image/*"></label>
+      <button id="lvPicWingClear">Remove</button>
+    </div>
+    <canvas id="lvPreview" width="520" height="240"></canvas>
+    <div>
+      <button id="lvSave">Save new</button>
+      <button id="lvUpdate">Update</button>
+      <button id="lvDelete">Delete</button>
+      <button id="lvClose">Close</button>
+    </div>
+    <h3>Saved liveries</h3>
+    <div id="lvList"></div>
+    <p class="hint">Saved liveries appear in the hangar, where you pick one for each plane. Press Esc to close.</p>
+  </div>
+</div>
+<div id="teleport">
+  <div class="card">
+    <h2>Teleport</h2>
+    <div id="spots"></div>
+    <p class="hint">Pick a spot to start there. Press T or Esc to close.</p>
+  </div>
+</div>
+<div id="home">
+  <div class="card">
+    <h2>Plane the Plane</h2>
+    <p class="hint" id="homeWho"></p>
+    <div class="homeBtns">
+      <button id="homeFly">Fly</button>
+      <button id="homeHangar">Hangar</button>
+      <button id="homeLivery">Livery maker</button>
+      <button id="homeAdmin">Admin</button>
+      <button id="homeSwitch">Switch pilot</button>
+    </div>
+    <p class="hint">Fly takes you to the runway. Press Esc to come back here from the air.</p>
+  </div>
+</div>
+<div id="login">
+  <div class="card">
+    <h2>Plane the Plane</h2>
+    <p class="hint">Sign in as a pilot, or create one. Each pilot keeps its own coins, planes and liveries on this browser.</p>
+    <div class="fields">
+      <label>Pilot name <input id="loginName" maxlength="16" autocomplete="username"></label>
+      <label>Password <input id="loginPass" type="password" maxlength="32" autocomplete="current-password"></label>
+    </div>
+    <div>
+      <button id="loginIn">Sign in</button>
+      <button id="loginNew">Create pilot</button>
+    </div>
+    <p id="loginMsg" class="hint"></p>
+    <div id="pilots"></div>
+  </div>
+</div>
+<div id="admin">
+  <div class="card">
+    <h2>Admin</h2>
+    <p class="hint" id="adminCount"></p>
+    <table id="adminTable"></table>
+    <div><button id="adminDone">Close</button></div>
+  </div>
+</div>
+<div id="hangar">
+  <div class="card">
+    <h2>Hangar</h2>
+    <div id="coins"></div>
+    <button id="switchPilot">Switch pilot</button>
+    <button id="openAdmin" style="display:none">Admin</button>
+    <div id="list"></div>
+    <button id="openLivery">Livery maker</button>
+    <h3>Contracts</h3>
+    <div id="offers"></div>
+    <h3>Flight log</h3>
+    <div id="log"></div>
+    <p class="hint">Land safely to earn coins. Press B or Esc to close.</p>
+  </div>
+</div>
+<div id="help">W/S or ↓/↑  pitch (S / ↑ = nose up)
+A/D or ←/→  roll
+Q/E         rudder
+1-9         throttle (9 = full, 0 = idle)
+Shift/Ctrl  throttle up/down (fine)
+Space       brake (on ground)
+G           gear up / down (up only in the air)
+[ / ]       flaps up / down
+P           autopilot: hold heading and altitude
+L           lights
+M           engine sound
+C           camera: chase / cockpit / side
+B           hangar (buy and fly planes)
+F           refuel on the ground (1 coin per 1%)
+R           restart (keeps your fuel)
+N           fly to the waypoint, or the contract (click the minimap to set a waypoint)
+T           teleport menu</div>
+<script>
+// ---------- canvas setup
+// three stacked layers: the scene (sky, terrain, shadow), the aircraft in WebGL, and the HUD on top
+const canvas = document.getElementById('c');
+const sceneCtx = canvas.getContext('2d');
+let ctx = sceneCtx;                          // whichever layer is being drawn into
+const glCanvas = document.getElementById('gl');
+const gl = glCanvas.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: true });
+const fxCanvas = document.getElementById('fx');
+const fxCtx = fxCanvas.getContext('2d');
+let W = 0, H = 0;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = innerWidth; H = innerHeight;
+  for (const c of [canvas, glCanvas, fxCanvas]) { c.width = W * dpr; c.height = H * dpr; }
+  sceneCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (gl) gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+}
+addEventListener('resize', resize);
+resize();
+
+// ---------- vector math
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len = a => Math.hypot(a[0], a[1], a[2]);
+const norm = a => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const lerpV = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const mix = (c1, c2, t) => c1.map((v, i) => v + (c2[i] - v) * t);
+const rgb = c => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+const RAD2DEG = 180 / Math.PI;
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+
+// ---------- constants
+const G = 9.8;
+const LIFT_MAX = G * 1.15;
+
+// Planes you can fly. Stats are per model (stall in m/s, thrust in m/s^2 at full throttle).
+// spec holds real-world sizes in metres. buildAircraft turns it into a mesh in body axes: x right, y up, z forward.
+const MODELS = [
+  {
+    name: 'Trainer', price: 0, thrust: 26, stall: 22, drag: 0.0008,
+    spec: {
+      len: 8.3, r: 0.62, nose: 0.12, tail: 0.2, body: [240, 240, 244], stripe: null,
+      wing: { y: 0.55, z: 1.3, cr: 1.7, ct: 1.1, sweep: 0.05, span: 5.6, dih: 0.04, col: [200, 206, 216] },
+      tail: { y: 0.25, z: -2.9, cr: 1.2, ct: 0.7, sweep: 0.3, span: 1.9 },
+      fin: { z: -2.4, cr: 1.6, ct: 0.8, h: 1.5, sweep: 0.5, col: [220, 60, 50] },
+      engines: [{ at: [0, 0.05, 3.9], r: 0.5, len: 1.3 }],
+      prop: true
+    }
+  },
+  {
+    name: 'Sport Jet', level: 2, price: 2500, thrust: 36, stall: 26, drag: 0.0005,
+    spec: {
+      len: 14.9, r: 0.98, nose: 0.16, tail: 0.2, body: [244, 246, 250], stripe: [255, 200, 40],
+      wing: { y: -0.35, z: 0.9, cr: 3.2, ct: 1.1, sweep: 0.5, span: 6.2, dih: 0.07, col: [190, 196, 210] },
+      tail: { y: 0, z: -4.8, cr: 2.2, ct: 0.9, sweep: 0.35, span: 4.4 },
+      fin: { z: -4.2, cr: 3.2, ct: 1.3, h: 2.9, sweep: 0.5, col: [40, 90, 200] },
+      engines: [{ at: [1.25, -0.45, -4.8], r: 0.42, len: 2.2, mirror: true }],
+      tTail: true
+    }
+  },
+  {
+    name: 'Airliner', level: 3, price: 10000, thrust: 30, stall: 34, drag: 0.0004,
+    spec: {
+      len: 37.6, r: 1.95, nose: 0.13, tail: 0.22, body: [246, 246, 250], stripe: [0, 90, 170],
+      wing: { y: -0.9, z: 2.6, cr: 6.2, ct: 1.5, sweep: 0.44, span: 17.2, dih: 0.07, col: [208, 212, 222] },
+      tail: { y: 0.7, z: -11.4, cr: 4.6, ct: 1.5, sweep: 0.5, span: 6.0 },
+      fin: { z: -10.8, cr: 7.0, ct: 2.4, h: 5.6, sweep: 0.6, col: [0, 90, 170] },
+      engines: [{ s: 6.4, drop: 1.7, r: 1.05, len: 3.4, fwd: 0.6 }]
+    }
+  },
+  {
+    name: '777X', level: 5, price: 15000, thrust: 32, stall: 36, drag: 0.00035,
+    spec: {
+      len: 76.7, r: 3.05, nose: 0.09, tail: 0.17, body: [246, 247, 250], stripe: [0, 80, 160],
+      wing: { y: -1.4, z: 6.5, cr: 13, ct: 2.4, sweep: 0.55, span: 34.5, dih: 0.1, col: [214, 218, 226], winglet: 2.6 },
+      tail: { y: 1.0, z: -26, cr: 8.2, ct: 2.4, sweep: 0.62, span: 13 },
+      fin: { z: -23, cr: 12, ct: 3.2, h: 9.5, sweep: 0.8, col: [0, 70, 150] },
+      engines: [{ s: 11.5, drop: 2.4, r: 2.05, len: 6.6, fwd: 0.9 }]
+    }
+  },
+  {
+    name: '737', level: 2, price: 4000, thrust: 30, stall: 28, drag: 0.0006,
+    spec: {
+      len: 39.5, r: 1.9, nose: 0.12, tail: 0.2, body: [246, 246, 250], stripe: [190, 30, 45],
+      wing: { y: -0.95, z: 2.4, cr: 6.5, ct: 1.6, sweep: 0.44, span: 17.9, dih: 0.08, col: [210, 214, 224], winglet: 2.2 },
+      tail: { y: 0.7, z: -12.6, cr: 4.6, ct: 1.5, sweep: 0.56, span: 7.4 },
+      fin: { z: -11.2, cr: 7.2, ct: 2.4, h: 6.0, sweep: 0.62, col: [190, 30, 45] },
+      engines: [{ s: 6.5, drop: 1.6, r: 1.05, len: 3.1, fwd: 0.4 }]
+    }
+  },
+  {
+    name: '787', level: 4, price: 12000, thrust: 33, stall: 32, drag: 0.0004,
+    spec: {
+      len: 56.7, r: 2.9, nose: 0.09, tail: 0.18, body: [246, 247, 250], stripe: [40, 80, 150],
+      wing: { y: -1.2, z: 6.0, cr: 10.5, ct: 2.0, sweep: 0.56, span: 30, dih: 0.1, col: [214, 218, 226] },
+      tail: { y: 0.9, z: -20, cr: 6, ct: 2, sweep: 0.56, span: 11 },
+      fin: { z: -17, cr: 10, ct: 3, h: 8, sweep: 0.75, col: [60, 64, 76] },
+      engines: [{ s: 10.5, drop: 1.8, r: 1.5, len: 4.8, fwd: 0.6 }]
+    }
+  },
+  {
+    name: '747', level: 6, price: 25000, thrust: 36, stall: 40, drag: 0.00035,
+    spec: {
+      len: 76.3, r: 3.2, nose: 0.1, tail: 0.17, body: [246, 246, 250], stripe: [0, 80, 160],
+      wing: { y: -1.5, z: 8, cr: 14, ct: 2.3, sweep: 0.66, span: 33, dih: 0.12, col: [210, 214, 224] },
+      tail: { y: 1.1, z: -28, cr: 9, ct: 2.5, sweep: 0.5, span: 13 },
+      fin: { z: -24, cr: 13, ct: 3, h: 12.5, sweep: 0.65, col: [0, 80, 160] },
+      engines: [{ s: 8.8, drop: 2.6, r: 1.65, len: 4.9, fwd: 0.6 }, { s: 19, drop: 2.6, r: 1.65, len: 4.9, fwd: 0.6 }]
+    }
+  },
+  {
+    name: 'Cessna 172', level: 1, price: 1500, thrust: 18, stall: 16, drag: 0.004,
+    spec: {
+      len: 8.3, r: 0.6, nose: 0.14, tail: 0.22, body: [250, 250, 248], stripe: [200, 30, 30],
+      wing: { y: 0.9, z: 1.2, cr: 1.6, ct: 1.2, sweep: 0.0, span: 5.5, dih: 0.1, col: [236, 236, 240] },
+      tail: { y: 0.4, z: -3.0, cr: 1.2, ct: 0.8, sweep: 0.25, span: 1.9 },
+      fin: { z: -2.5, cr: 1.5, ct: 0.7, h: 1.7, sweep: 0.5, col: [200, 30, 30] },
+      engines: [{ at: [0, 0.1, 4.0], r: 0.5, len: 1.3 }],
+      prop: true
+    }
+  },
+  {
+    name: 'Embraer E175', level: 2, price: 5000, thrust: 34, stall: 27, drag: 0.0005,
+    spec: {
+      len: 31.7, r: 1.6, nose: 0.14, tail: 0.2, body: [244, 246, 250], stripe: [40, 90, 170],
+      wing: { y: -0.7, z: 1.9, cr: 4.2, ct: 1.2, sweep: 0.45, span: 14, dih: 0.07, col: [200, 206, 216], winglet: 1.2 },
+      tail: { y: 0.4, z: -13.5, cr: 3.2, ct: 1.1, sweep: 0.5, span: 5.4 },
+      fin: { z: -12.5, cr: 4.6, ct: 1.6, h: 4.4, sweep: 0.6, col: [40, 90, 170] },
+      engines: [{ s: 4.6, drop: 1.4, r: 0.95, len: 2.8, fwd: 0.4 }]
+    }
+  },
+  {
+    name: '757', level: 3, price: 9000, thrust: 33, stall: 31, drag: 0.00045,
+    spec: {
+      len: 47.3, r: 1.7, nose: 0.12, tail: 0.2, body: [246, 246, 250], stripe: [20, 50, 110],
+      wing: { y: -1.0, z: 3.4, cr: 7.4, ct: 1.5, sweep: 0.45, span: 19, dih: 0.08, col: [210, 214, 224], winglet: 1.8 },
+      tail: { y: 0.8, z: -17, cr: 4.6, ct: 1.5, sweep: 0.55, span: 7.5 },
+      fin: { z: -14.5, cr: 7.5, ct: 2.4, h: 6.4, sweep: 0.62, col: [20, 50, 110] },
+      engines: [{ s: 7.2, drop: 1.7, r: 1.1, len: 3.6, fwd: 0.5 }]
+    }
+  },
+  {
+    name: '767', level: 4, price: 11000, thrust: 33, stall: 32, drag: 0.00045,
+    spec: {
+      len: 54.9, r: 2.5, nose: 0.1, tail: 0.2, body: [246, 246, 250], stripe: [0, 110, 160],
+      wing: { y: -1.1, z: 5.4, cr: 8.5, ct: 1.8, sweep: 0.5, span: 24.4, dih: 0.08, col: [212, 216, 226], winglet: 1.6 },
+      tail: { y: 0.9, z: -21, cr: 5.6, ct: 1.8, sweep: 0.55, span: 9.5 },
+      fin: { z: -18, cr: 9, ct: 2.8, h: 7.6, sweep: 0.7, col: [0, 110, 160] },
+      engines: [{ s: 8.5, drop: 1.9, r: 1.35, len: 4.2, fwd: 0.5 }]
+    }
+  },
+  {
+    name: 'A330', level: 5, price: 18000, thrust: 33, stall: 34, drag: 0.0004,
+    spec: {
+      len: 63.7, r: 2.9, nose: 0.1, tail: 0.18, body: [246, 246, 250], stripe: [40, 70, 130],
+      wing: { y: -1.1, z: 6.2, cr: 9.8, ct: 1.8, sweep: 0.5, span: 30.3, dih: 0.08, col: [210, 214, 224], winglet: 2.0 },
+      tail: { y: 0.8, z: -23, cr: 5.8, ct: 1.8, sweep: 0.55, span: 10.5 },
+      fin: { z: -20, cr: 9.5, ct: 2.9, h: 8.6, sweep: 0.7, col: [40, 70, 130] },
+      engines: [{ s: 9.5, drop: 2.0, r: 1.5, len: 4.6, fwd: 0.5 }]
+    }
+  },
+  {
+    name: 'A350', level: 5, price: 22000, thrust: 34, stall: 35, drag: 0.00035,
+    spec: {
+      len: 66.8, r: 3.0, nose: 0.09, tail: 0.18, body: [248, 248, 250], stripe: [50, 56, 70],
+      wing: { y: -1.2, z: 6.6, cr: 11, ct: 1.9, sweep: 0.52, span: 31.9, dih: 0.1, col: [214, 218, 226], winglet: 2.2 },
+      tail: { y: 0.9, z: -24, cr: 6.4, ct: 1.9, sweep: 0.58, span: 11.2 },
+      fin: { z: -21, cr: 10.8, ct: 3, h: 9.2, sweep: 0.75, col: [50, 56, 70] },
+      engines: [{ s: 10.5, drop: 2.0, r: 1.6, len: 5, fwd: 0.6 }]
+    }
+  },
+  {
+    name: 'A380', level: 7, price: 40000, thrust: 30, stall: 40, drag: 0.0003,
+    spec: {
+      len: 72.7, r: 3.5, nose: 0.09, tail: 0.16, body: [246, 246, 250], stripe: [30, 80, 160],
+      wing: { y: -1.5, z: 8.5, cr: 14.5, ct: 2.5, sweep: 0.5, span: 39.8, dih: 0.1, col: [210, 214, 224], winglet: 2.4 },
+      tail: { y: 1.1, z: -28, cr: 9, ct: 2.6, sweep: 0.55, span: 14.5 },
+      fin: { z: -25, cr: 13, ct: 3.2, h: 11, sweep: 0.7, col: [30, 80, 160] },
+      engines: [{ s: 9, drop: 2.6, r: 1.9, len: 5.4, fwd: 0.7 }, { s: 19, drop: 2.6, r: 1.9, len: 5.4, fwd: 0.7 }]
+    }
+  },
+  {
+    name: 'F-16', level: 6, price: 30000, thrust: 58, stall: 38, drag: 0.0011,
+    spec: {
+      len: 15.1, r: 0.55, nose: 0.25, tail: 0.2, body: [110, 114, 122], stripe: null,
+      wing: { y: -0.1, z: 1.6, cr: 5.0, ct: 1.1, sweep: 0.75, span: 4.6, dih: 0.02, col: [96, 100, 108] },
+      tail: { y: 0.2, z: -6.3, cr: 2.0, ct: 0.9, sweep: 0.7, span: 2.4 },
+      fin: { z: -5.3, cr: 3.0, ct: 1.2, h: 2.4, sweep: 0.9, col: [96, 100, 108] },
+      engines: [{ at: [0, -0.1, 5.0], r: 0.45, len: 3.2 }]
+    }
+  },
+  {
+    name: 'Concorde', level: 8, price: 60000, thrust: 42, stall: 45, drag: 0.00018,
+    spec: {
+      len: 61.7, r: 1.3, nose: 0.2, tail: 0.15, body: [246, 246, 250], stripe: null,
+      wing: { y: -0.6, z: 14, cr: 26, ct: 0.6, sweep: 1.15, span: 7.8, dih: 0.02, col: [214, 218, 226] },
+      tail: { y: 0, z: -29, cr: 0.8, ct: 0.4, sweep: 0.3, span: 0.5 },
+      fin: { z: -26, cr: 8, ct: 1, h: 4.5, sweep: 0.8, col: [30, 40, 70] },
+      engines: [{ s: 4, drop: 1.0, r: 0.7, len: 6, fwd: 2 }, { s: 6, drop: 1.0, r: 0.7, len: 6, fwd: 2 }]
+    }
+  }
+];
+
+const WINDOW = [36, 50, 70], INTAKE = [38, 40, 48], ENGINE = [196, 200, 210], PROP = [60, 60, 66];
+
+// Builds the faces of a plane from its spec: a lofted fuselage, swept wings and tail, nacelles and details.
+// Faces are {pts, col, two}; two marks flat surfaces that are seen from both sides.
+function buildAircraft(m) {
+  const sp = m.spec, R = sp.r, L = sp.len, SEG = 22, N = 26;   // more segments: a rounder fuselage
+  const out = [], lights = [];
+
+  // a ring of SEG points around the axis (cx, cy) at height z
+  const ringAt = (cx, cy, r, z) => {
+    const pts = [];
+    for (let j = 0; j < SEG; j++) {
+      const th = 2 * Math.PI * j / SEG, s = Math.sin(th);
+      pts.push([cx + r * Math.cos(th), cy + r * s * (s < 0 ? 0.9 : 1), z]);
+    }
+    return pts;
+  };
+  // joins neighbouring rings into quads, turned so their normals point away from the axis
+  const tube = (rings, cx, cy, colAt) => {
+    for (let i = 0; i < rings.length - 1; i++) {
+      for (let j = 0; j < SEG; j++) {
+        const j2 = (j + 1) % SEG;
+        const q = [rings[i][j], rings[i][j2], rings[i + 1][j2], rings[i + 1][j]];
+        const ctr = mul(q.reduce((a, p) => add(a, p), [0, 0, 0]), 0.25);
+        if (dot(cross(sub(q[1], q[0]), sub(q[2], q[0])), sub(ctr, [cx, cy, ctr[2]])) < 0) q.reverse();
+        out.push({ pts: q, col: colAt(i, j), two: false, smooth: true });
+      }
+    }
+  };
+  const flat = (pts, col) => out.push({ pts, col, two: true });
+
+  // fuselage: rounded nose, slimmer tail cone, rings packed closer at both ends
+  const T = Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(Math.PI * i / (N - 1)));
+  const radiusAt = t => {
+    if (t > 1 - sp.nose) return R * Math.max(0.12, Math.sqrt(1 - Math.pow((t - 1 + sp.nose) / sp.nose, 3)));
+    if (t < sp.tail) return R * (0.35 + 0.65 * Math.sqrt(t / sp.tail));
+    return R;
+  };
+  const rings = T.map(t => ringAt(0, 0, radiusAt(t), -L / 2 + t * L));
+  tube(rings, 0, 0, (i, j) => {
+    const t = (T[i] + T[i + 1]) / 2, th = 2 * Math.PI * (j + 0.5) / SEG;
+    const c = Math.cos(th), s = Math.sin(th);
+    if (t > 1 - sp.nose * 0.6 && s > 0.3 && Math.abs(c) < 0.75) return WINDOW;     // cockpit glass
+    if (Math.abs(c) > 0.9 && t > 0.2 && t < 0.85) {
+      if (s > 0.1 && s < 0.4) return WINDOW;                                         // passenger windows
+      if (sp.stripe && s < -0.05 && s > -0.3) return sp.stripe;                      // livery stripe
+    }
+    return sp.body;
+  });
+  flat(rings[0], sp.body);
+  flat(rings[N - 1], sp.body);
+
+  // wing or tail surface: leading edge swept back, chord tapering to the tip, mirrored left and right
+  const planform = wg => {
+    const rootS = R * 0.6, tanS = Math.tan(wg.sweep);
+    const LE = s => wg.z - tanS * (s - rootS);
+    const TE = s => LE(s) - (wg.cr + (wg.ct - wg.cr) * (s - rootS) / (wg.span - rootS));
+    const Y = s => wg.y + (wg.dih || 0) * s;
+    return { rootS, LE, TE, Y };
+  };
+  const surface = (wg, col, accent, lightsOn) => {
+    const g = planform(wg), r0 = g.rootS, S = wg.span;
+    for (const k of [-1, 1]) {
+      flat([[k * r0, g.Y(r0), g.LE(r0)], [k * S, g.Y(S), g.LE(S)], [k * S, g.Y(S), g.TE(S)], [k * r0, g.Y(r0), g.TE(r0)]], col);
+      if (wg.winglet) {
+        const h = wg.winglet, y = g.Y(S);
+        flat([[k * S, y, g.LE(S)], [k * S, y, g.TE(S)], [k * (S + 0.4), y + h, g.TE(S) - 0.8], [k * (S + 0.4), y + h, g.LE(S) - 0.3]], accent);
+      }
+      if (lightsOn) lights.push({ p: [k * S, g.Y(S), (g.LE(S) + g.TE(S)) / 2], col: k < 0 ? [255, 50, 50] : [60, 255, 90] });
+    }
+  };
+  const wingCol = sp.wing.col, f = sp.fin, y0 = R * 0.5, tanF = Math.tan(f.sweep);
+  surface(sp.wing, wingCol, f.col, true);
+  surface({ ...sp.tail, y: sp.tTail ? y0 + f.h - 0.4 : sp.tail.y }, sp.tail.col || wingCol, f.col, false);
+  flat([[0, y0, f.z], [0, y0 + f.h, f.z - tanF * f.h], [0, y0 + f.h, f.z - tanF * f.h - f.ct], [0, y0, f.z - f.cr]], f.col);
+  lights.push({ p: [0, y0 + f.h, f.z - tanF * f.h - f.ct / 2], col: [255, 255, 255], flash: true });
+
+  // nacelles: the intake is at zF and the cowl runs back along -z
+  const nacelle = (cx, cy, zF, r, ln) => {
+    const prof = [0.92, 1, 1, 0.9, 0.8];
+    const rs = prof.map((k, i) => ringAt(cx, cy, r * k, zF - i / (prof.length - 1) * ln));
+    tube(rs, cx, cy, i => (i === 0 ? INTAKE : i === prof.length - 2 ? mul(ENGINE, 0.8) : ENGINE));
+    flat(rs[0], INTAKE);
+  };
+  for (const e of sp.engines) {
+    if (e.s !== undefined) {
+      const g = planform(sp.wing);
+      for (const k of [-1, 1]) nacelle(k * e.s, g.Y(e.s) - e.drop, g.LE(e.s) + e.fwd, e.r, e.len);
+    } else {
+      for (const k of e.mirror ? [-1, 1] : [1]) nacelle(k * e.at[0], e.at[1], e.at[2], e.r, e.len);
+    }
+  }
+  if (sp.prop) {
+    const zf = L / 2 + 0.05;
+    out.push({ pts: [[-0.1, 0.95, zf], [0.1, 0.95, zf], [0.1, -0.95, zf], [-0.1, -0.95, zf]], col: PROP, two: true, spin: true });
+    out.push({ pts: [[-0.95, 0.1, zf], [0.95, 0.1, zf], [0.95, -0.1, zf], [-0.95, -0.1, zf]], col: PROP, two: true, spin: true });
+  }
+
+  // stand the lowest point on the ground (y = 0), and keep the size for the camera, minimap and shadow
+  let minY = Infinity, zMax = 0, xMax = 0;
+  for (const face of out) {
+    for (const p of face.pts) {
+      minY = Math.min(minY, p[1]);
+      zMax = Math.max(zMax, Math.abs(p[2]));
+      xMax = Math.max(xMax, Math.abs(p[0]));
+    }
+  }
+  const dy = -minY;
+  // each face remembers which paint it takes (body, stripe, wing, fin), so a livery can recolour it
+  const roleOf = c => (c === sp.body ? 'body' : c === sp.stripe ? 'stripe' : c === sp.wing.col || c === (sp.tail.col || sp.wing.col) ? 'wing' : c === sp.fin.col ? 'fin' : null);
+  m.mesh = out.map(face => ({ ...face, pts: face.pts.map(p => [p[0], p[1] + dy, p[2]]), role: roleOf(face.col) }));
+  m.lights = lights.map(l => ({ ...l, p: [l.p[0], l.p[1] + dy, l.p[2]] }));
+  // the propeller spins about this point
+  m.hub = [0, dy, L / 2 + 0.05];
+  // landing gear hangs from the body origin (the bottom of the fuselage) down to the ground when lowered
+  const gl = Math.max(0.8, L * 0.04);
+  m.gearLen = gl;
+  const gear = [];
+  const leg = (x, z) => {
+    gear.push({ pts: [[x, 0.3, z - 0.08], [x, 0.3, z + 0.08], [x, -gl * 0.85, z + 0.08], [x, -gl * 0.85, z - 0.08]], col: [150, 150, 156], two: true });
+    gear.push({ pts: [[x - 0.25, -gl, z], [x + 0.25, -gl, z], [x + 0.25, -gl * 0.65, z], [x - 0.25, -gl * 0.65, z]], col: [30, 30, 34], two: true });
+  };
+  leg(0, L * 0.32);                                   // nose gear
+  const mx = Math.max(R * 0.8, 0.9), mz = sp.wing.z - 0.5;
+  leg(-mx, mz); leg(mx, mz);                          // main gear
+  m.gear = gear;
+  // normals for shading: fuselage panels that meet at a point share one, so the curves shade smoothly;
+  // flat faces and hard edges keep their own
+  const pkey = (p, smooth) => `${Math.round(p[0] * 50)},${Math.round(p[1] * 50)},${Math.round(p[2] * 50)},${smooth ? 's' : 'h'}`;
+  const faceNormal = pts => norm(cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])));
+  const sums = new Map();
+  for (const f of m.mesh) {
+    const fn = faceNormal(f.pts);
+    for (const p of f.pts) { const k = pkey(p, f.smooth); sums.set(k, add(sums.get(k) || [0, 0, 0], fn)); }
+  }
+  for (const f of m.mesh) {
+    const fn = faceNormal(f.pts);
+    f.vn = f.pts.map(p => (f.smooth ? norm(sums.get(pkey(p, true))) : fn));
+  }
+  for (const f of m.gear) { const fn = faceNormal(f.pts); f.vn = f.pts.map(() => fn); }
+  m.ext = { len: zMax, span: xMax };
+}
+for (const m of MODELS) buildAircraft(m);
+
+// Pilots sign in with a name and password. Each pilot's coins, planes and liveries are kept in this browser, apart from the others.
+// Storage can be blocked, so every access is guarded.
+const SAVE_KEY = 'plane-the-plane-save';   // the single save from before pilots existed; the first pilot to be created claims it
+const PILOTS_KEY = 'plane-the-plane-pilots';
+const DEFAULT_SAVE = { coins: 1000, owned: [0], selected: 0, xp: 0, completed: 0, contract: null, log: [], liveries: [], planeLivery: {} };
+let save = JSON.parse(JSON.stringify(DEFAULT_SAVE));
+let pilot = null;   // the signed-in pilot's name, or null while the sign-in screen is up
+const readJSON = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } };
+const pilotKey = name => SAVE_KEY + ':' + name.toLowerCase();
+const careerLevel = () => 1 + Math.floor(save.xp / 500);
+const RUNWAY = { x: 20, z0: -200, z1: 1000 };
+const START = { pos: [0, 0, -150] };
+const CELL = 125, GRID_N = 29;   // ground cells: 125 m, out to about 3.6 km each way
+const FOG_START = 400, FOG_END = 3600;
+const NEAR = 1;
+const GROUND_A = [70, 128, 60], GROUND_B = [60, 114, 52];
+const SKY_TOP = [40, 95, 185], HORIZON = [185, 212, 232];
+const RUNWAY_COL = [58, 60, 66];
+
+// ---------- terrain: hills and mountains on a height grid. Pads (runway, contract strips, offers) are kept flat.
+const TER_STEP = 30, TER_HALF = 6000, TER_N = Math.round(2 * TER_HALF / TER_STEP) + 1;
+const TER_GRID = new Float32Array(TER_N * TER_N);
+const PAD_BLEND = 220;   // metres over which the ground rises back to its natural height beside a pad
+const ROCK = [118, 110, 100], SNOW = [236, 240, 246];
+const WATER = 12;   // lakes: ground below this height fills with water
+let offers = [];
+let pads = [];
+
+// smooth random noise in 0..1, built from the same hash as the ground colours
+function valueNoise(x, z) {
+  const xi = Math.floor(x), zi = Math.floor(z), u = x - xi, v = z - zi;
+  const sx = u * u * (3 - 2 * u), sz = v * v * (3 - 2 * v);
+  const a = hash2(xi, zi), b = hash2(xi + 1, zi), c = hash2(xi, zi + 1), d = hash2(xi + 1, zi + 1);
+  const top = a + (b - a) * sx, bottom = c + (d - c) * sx;
+  return top + (bottom - top) * sz;
+}
+// natural height: a few broad peaks, ridges and rolling hills, fading to flat far out
+function naturalHeight(x, z) {
+  const big = valueNoise(x / 1600, z / 1600);
+  const mid = valueNoise(x / 500 + 31, z / 500 - 17);
+  const small = valueNoise(x / 140 + 7, z / 140 + 3);
+  const fade = clamp((5100 - Math.hypot(x, z)) / 800, 0, 1);
+  const peaks = Math.pow(clamp((big - 0.5) * 2.4, 0, 1), 1.5) * 1000;
+  return fade * (peaks + mid * mid * 160 + small * 30);
+}
+for (let i = 0; i < TER_N; i++) {
+  for (let j = 0; j < TER_N; j++) TER_GRID[i * TER_N + j] = naturalHeight(i * TER_STEP - TER_HALF, j * TER_STEP - TER_HALF);
+}
+// bilinear lookup in the grid, without pads
+function naturalAt(x, z) {
+  const fx = clamp((x + TER_HALF) / TER_STEP, 0, TER_N - 1.001), fz = clamp((z + TER_HALF) / TER_STEP, 0, TER_N - 1.001);
+  const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+  const g = (a, b) => TER_GRID[a * TER_N + b];
+  const lo = g(i, j) + (g(i + 1, j) - g(i, j)) * u;
+  const hi = g(i, j + 1) + (g(i + 1, j + 1) - g(i, j + 1)) * u;
+  return lo + (hi - lo) * v;
+}
+// Pads are flat areas: inside one the ground sits at the pad's height, and it blends back outside.
+// The runway is always a pad. Offers and the active contract become pads when the hangar lists them.
+function refreshPads() {
+  pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: 0 }];
+  for (const c of [...offers, save.contract]) {
+    if (c) pads.push({ x: c.x, z: c.z, hdg: c.hdg, half: [400, 20], elev: naturalAt(c.x, c.z) });
+  }
+}
+// Height of the ground at x, z, with the pads applied.
+function terrainAt(x, z) {
+  let h = Math.max(naturalAt(x, z), WATER);
+  for (const pad of pads) {
+    const dx = x - pad.x, dz = z - pad.z, sn = Math.sin(pad.hdg), cs = Math.cos(pad.hdg);
+    const a = dx * sn + dz * cs, b = dx * cs - dz * sn;   // along and across the pad
+    const d = Math.hypot(Math.max(Math.abs(a) - pad.half[0], 0), Math.max(Math.abs(b) - pad.half[1], 0));
+    const t = clamp(1 - d / PAD_BLEND, 0, 1);
+    h += (pad.elev - h) * t * t * (3 - 2 * t);
+  }
+  return h;
+}
+// True when a hill stands between the eye and the point, so a building behind it is skipped.
+function blockedFrom(eye, pt) {
+  for (let i = 1; i < 20; i++) {
+    const t = i / 20;
+    const x = eye[0] + (pt[0] - eye[0]) * t, y = eye[1] + (pt[1] - eye[1]) * t, z = eye[2] + (pt[2] - eye[2]) * t;
+    if (y < terrainAt(x, z)) return true;
+  }
+  return false;
+}
+refreshPads();
+
+// ---------- world (seeded so every reload is the same)
+let seed = 7;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+const buildings = [];
+for (let i = 0; i < 600; i++) {
+  const x = (rnd() * 2 - 1) * 4000, z = (rnd() * 2 - 1) * 4000;
+  if (Math.abs(x) < 60 && z > -300 && z < 1200) continue;   // keep runway clear
+  if (Math.hypot(x, z) < 120) continue;
+  const tall = rnd() < 0.1;
+  const w = 20 + rnd() * 50, d = 20 + rnd() * 50;
+  const h = tall ? 180 + rnd() * 200 : 15 + rnd() * 70;
+  const s = 120 + rnd() * 70;
+  const y = terrainAt(x, z);
+  buildings.push({ x, z, w, d, h, y, top: y + h, col: [s, s * (0.9 + rnd() * 0.1), s * (0.85 + rnd() * 0.15)] });
+}
+
+// towns: clusters of buildings, taller toward the centre, joined by roads
+const towns = [];
+for (let t = 0; t < 9; t++) {
+  const tx = (rnd() * 2 - 1) * 3500, tz = (rnd() * 2 - 1) * 3500;
+  if (Math.hypot(tx, tz) < 600) continue;
+  towns.push({ x: tx, z: tz });
+  for (let i = 0; i < 30; i++) {
+    const x = tx + (rnd() * 2 - 1) * 260, z = tz + (rnd() * 2 - 1) * 260;
+    if (Math.abs(x) < 60 && z > -300 && z < 1200) continue;
+    const k = Math.max(0, 1 - Math.hypot(x - tx, z - tz) / 300);
+    const w = 18 + rnd() * 30, d = 18 + rnd() * 30, h = 14 + 20 * k + rnd() * 120 * k;
+    const y = terrainAt(x, z), s = 150 + rnd() * 60;
+    buildings.push({ x, z, w, d, h, y, top: y + h, col: [s, s * 0.95, s * 0.9] });
+  }
+}
+const roads = towns.slice(1).map((t, i) => [towns[i], t]);
+
+const clouds = [];
+for (let i = 0; i < 160; i++) {
+  const cx = (rnd() * 2 - 1) * 4000, cz = (rnd() * 2 - 1) * 4000, cy = 250 + rnd() * 450;
+  const n = 3 + Math.floor(rnd() * 3), size = 40 + rnd() * 60;
+  for (let j = 0; j < n; j++) {
+    clouds.push({
+      x: cx + (rnd() - 0.5) * size * 2,
+      y: cy + (rnd() - 0.5) * size * 0.4,
+      z: cz + (rnd() - 0.5) * size * 2,
+      r: size * (0.5 + rnd() * 0.5)
+    });
+  }
+}
+
+// ---------- plane state
+let plane;
+let view = 0; // 0 = chase, 1 = cockpit, 2 = side
+const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE'];
+let lightsOn = true, soundOn = true;
+function resetPlane(fuel = 1) {
+  plane = {
+    model: MODELS[save.selected], lastReward: 0,
+    pos: [...START.pos], vel: [0, 0, 0],
+    yaw: 0, pitch: 0, roll: 0,
+    throttle: 0, speed: 0, onGround: true, fuel, flight: { dist: 0, secs: 0 },
+    gear: true, flaps: 0, ap: null,
+    crashed: false, crashMsg: ''
+  };
+}
+resetPlane();
+
+// Teleport spots: the runway, the highest and lowest ground, and the first town
+let peak = { x: 0, z: 0, h: -1 }, low = { x: 0, z: 0, h: 1e9 };
+for (let i = 0; i < TER_N; i++) {
+  for (let j = 0; j < TER_N; j++) {
+    const x = i * TER_STEP - TER_HALF, z = j * TER_STEP - TER_HALF, h = TER_GRID[i * TER_N + j];
+    if (Math.hypot(x, z) > 4500) continue;
+    if (h > peak.h) peak = { x, z, h };
+    if (h < low.h && Math.hypot(x, z) > 800) low = { x, z, h };
+  }
+}
+const town = towns[0] || { x: 1500, z: 1500 };
+const SPOTS = [
+  { name: 'Runway', x: START.pos[0], z: START.pos[2], hdg: 0, air: false },
+  { name: 'Mountain peak', x: peak.x, z: peak.z, hdg: 0.6, air: true },
+  { name: 'Lowland lake', x: low.x, z: low.z, hdg: 1.2, air: true },
+  { name: 'Town', x: town.x, z: town.z, hdg: 0, air: true }
+];
+
+// Body axes from yaw/pitch/roll. Forward = +z at zero angles, up = +y, right = +x.
+function axes(p) {
+  const sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
+  const sp = Math.sin(p.pitch), cp = Math.cos(p.pitch);
+  const f = [sy * cp, sp, cy * cp];
+  const rb = [cy, 0, -sy];
+  const ub = [-sp * sy, cp, -sp * cy];
+  const sr = Math.sin(p.roll), cr = Math.cos(p.roll);
+  const right = add(mul(rb, cr), mul(ub, sr));
+  const up = sub(mul(ub, cr), mul(rb, sr));
+  return { f, right, up };
+}
+
+// ---------- input
+const keys = {};
+const PREVENT = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+addEventListener('keydown', e => {
+  startAudio();   // browsers only allow sound after a key press
+  if (!pilot) return;   // the sign-in screen takes the keys
+  if (homeOpen) {
+    if (e.code === 'Escape') hideHome();
+    return;
+  }
+  if (liveryOpen) {
+    if (e.code === 'Escape') toggleLivery();
+    return;
+  }
+  if (e.code === 'KeyB' && !e.repeat) return toggleHangar();
+  if (hangarOpen) {
+    if (e.code === 'Escape') toggleHangar();
+    return;
+  }
+  if (teleportOpen) {
+    if (e.code === 'Escape' || e.code === 'KeyT') toggleTeleport();
+    return;
+  }
+  if (e.code === 'Escape') return showHome();   // in the air or on the ground, Esc goes back to the home screen
+  if (e.code === 'KeyT' && !e.repeat) return toggleTeleport();
+  keys[e.code] = true;
+  if (PREVENT.includes(e.code)) e.preventDefault();
+  if (e.code === 'KeyR' && !e.repeat) resetPlane(plane.fuel);   // restarting keeps the fuel you have
+  if (e.code === 'KeyN' && !e.repeat) toggleNav();
+  if (e.code === 'KeyF' && !e.repeat) refuel();
+  if (e.code === 'KeyC' && !e.repeat) view = (view + 1) % VIEW_NAMES.length;
+  if (e.code === 'KeyG' && !e.repeat) toggleGear();
+  if (e.code === 'KeyP' && !e.repeat) toggleAutopilot();
+  if (e.code === 'KeyL' && !e.repeat) lightsOn = !lightsOn;
+  if (e.code === 'KeyM' && !e.repeat) soundOn = !soundOn;
+  if (e.code === 'BracketRight' && !e.repeat) plane.flaps = Math.min(3, plane.flaps + 1);
+  if (e.code === 'BracketLeft' && !e.repeat) plane.flaps = Math.max(0, plane.flaps - 1);
+  // number keys set throttle directly: 1 = lowest, 9 = full, 0 = idle
+  const digit = e.code.match(/^(?:Digit|Numpad)([0-9])$/);
+  if (digit) plane.throttle = Number(digit[1]) / 9;
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+// clicking the minimap sets a waypoint at that spot on the map
+addEventListener('click', e => {
+  if (hangarOpen || teleportOpen) return;
+  const S = Math.min(460, Math.round(H * 0.45)), R = 1500, ox = W - S - 16, oy = H - S - 16, sc = S / 2 / R;
+  if (e.clientX < ox || e.clientX > ox + S || e.clientY < oy || e.clientY > oy + S) return;
+  waypoint = { x: plane.pos[0] + (e.clientX - (ox + S / 2)) / sc, z: plane.pos[2] - (e.clientY - (oy + S / 2)) / sc };
+});
+const down = k => !!keys[k];
+
+// ---------- coins and hangar
+function writeSave() {
+  if (!pilot) return;
+  try { localStorage.setItem(pilotKey(pilot), JSON.stringify(save)); } catch (e) { /* storage blocked */ }
+}
+function awardLanding(impact) {
+  const p = plane, c = save.contract;
+  if (c && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200) {
+    save.coins += c.pay;
+    save.xp += c.xp;
+    save.completed += 1;
+    save.contract = null;
+    p.lastReward = c.pay;
+    writeSave();
+    logFlight('Contract ' + c.name + ' +' + c.pay);
+    return;
+  }
+  const reward = Math.round(100 * clamp(1 - impact / 10, 0.2, 1));
+  save.coins += reward;
+  save.xp += Math.round(reward / 2);
+  p.lastReward = reward;
+  writeSave();
+  logFlight('Landed +' + reward);
+}
+
+// Contracts: fly to a strip on the map and land there to get paid and earn XP.
+const STRIP_NAMES = ['Harbor Field', 'Ridge Strip', 'Lakeside', 'Mesa Airfield', 'Cedar Valley', 'North Point', 'Glass Flats', 'Pine Hollow'];
+function makeOffer() {
+  const a = Math.random() * Math.PI * 2, d = 1500 + Math.random() * 2500, km = d / 1000;
+  return {
+    name: STRIP_NAMES[Math.floor(Math.random() * STRIP_NAMES.length)],
+    x: Math.cos(a) * d, z: Math.sin(a) * d, dist: d, hdg: Math.random() * Math.PI * 2,
+    pay: Math.round(300 + km * 150), xp: Math.round(100 + km * 60)
+  };
+}
+// Runway geometry for a contract strip: a 800 m by 40 m strip centred on the offer, aligned to its heading.
+function stripAxes(c) {
+  return { ux: Math.sin(c.hdg), uz: Math.cos(c.hdg), rx: Math.cos(c.hdg), rz: -Math.sin(c.hdg) };
+}
+function accept(o) {
+  save.contract = o;
+  writeSave();
+  renderHangar();
+}
+
+// Refuel on the ground: 1 coin per 1% of tank, as much as the coins allow.
+function refuel() {
+  const p = plane;
+  if (!p.onGround || p.speed > 5 || p.crashed) return;
+  const pct = Math.min(Math.round((1 - p.fuel) * 100), save.coins);
+  if (pct <= 0) return;
+  save.coins -= pct;
+  p.fuel = Math.min(1, p.fuel + pct / 100);
+  writeSave();
+}
+
+let hangarOpen = false;
+function toggleHangar() {
+  hangarOpen = !hangarOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('hangar').style.display = hangarOpen ? 'flex' : 'none';
+  if (hangarOpen) {
+    offers = [makeOffer(), makeOffer(), makeOffer()];
+    refreshPads();
+    renderHangar();
+  }
+}
+function renderHangar() {
+  document.getElementById('coins').textContent = `Pilot ${pilot || '-'}   Coins: ${save.coins}   Level ${careerLevel()}   XP ${save.xp}   Contracts ${save.completed}`;
+  document.getElementById('openAdmin').style.display = isAdmin() ? '' : 'none';
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  MODELS.forEach((m, i) => {
+    const owned = save.owned.includes(i);
+    const flying = owned && save.selected === i;
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    const locked = (m.level || 1) > careerLevel();
+    label.textContent = owned ? m.name : `${m.name} - ${m.price} coins` + (locked ? ` (career level ${m.level})` : '');
+    const btn = document.createElement('button');
+    btn.textContent = !owned ? 'Buy' : flying ? 'Flying' : 'Fly';
+    btn.disabled = flying || (!owned && (save.coins < m.price || locked));
+    btn.onclick = () => (owned ? select(i) : buy(i));
+    row.append(label, btn);
+    if (owned) row.append(liverySelect(m));
+    list.append(row);
+  });
+
+  const logEl = document.getElementById('log');
+  logEl.innerHTML = '';
+  if (!save.log.length) {
+    const none = document.createElement('p');
+    none.className = 'hint';
+    none.textContent = 'No flights yet.';
+    logEl.append(none);
+  }
+  save.log.forEach(e => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${e.model} - ${e.km} km - ${e.min} min - ${e.result}`;
+    row.append(label);
+    logEl.append(row);
+  });
+
+  const offersEl = document.getElementById('offers');
+  offersEl.innerHTML = '';
+  if (save.contract) {
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = `Active contract: ${save.contract.name}, ${save.contract.pay} coins. Fly there and land to complete it.`;
+    offersEl.append(note);
+  } else {
+    offers.forEach(o => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('span');
+      label.textContent = `${o.name} - ${(o.dist / 1000).toFixed(1)} km - ${o.pay} coins, ${o.xp} XP`;
+      const btn = document.createElement('button');
+      btn.textContent = 'Accept';
+      btn.onclick = () => accept(o);
+      row.append(label, btn);
+      offersEl.append(row);
+    });
+  }
+}
+function buy(i) {
+  const m = MODELS[i];
+  if (save.owned.includes(i) || save.coins < m.price || (m.level || 1) > careerLevel()) return;
+  save.coins -= m.price;
+  save.owned.push(i);
+  writeSave();
+  renderHangar();
+}
+function select(i) {
+  save.selected = i;
+  writeSave();
+  resetPlane();   // switching planes restarts you on the runway
+  renderHangar();
+}
+
+// ---------- liveries: paint schemes for each plane, made and chosen in the hangar
+const PRESETS = [
+  { name: 'Airline white', body: [246, 246, 250], stripe: [0, 90, 170], wing: [208, 212, 222], fin: [0, 90, 170] },
+  { name: 'Retro', body: [240, 232, 210], stripe: [200, 70, 30], wing: [200, 190, 170], fin: [200, 70, 30] },
+  { name: 'Stealth', body: [60, 64, 70], stripe: [30, 32, 36], wing: [48, 52, 58], fin: [30, 32, 36] },
+  { name: 'Racer red', body: [200, 20, 30], stripe: [255, 255, 255], wing: [180, 16, 24], fin: [255, 255, 255] },
+  { name: 'Corporate blue', body: [250, 250, 252], stripe: [20, 60, 140], wing: [225, 228, 236], fin: [20, 60, 140] }
+];
+const LV_PARTS = ['body', 'stripe', 'wing', 'fin'];
+const hexOf = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+const rgbOf = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+// the livery a plane flies in, or null for its default paint
+const liveryOf = m => save.liveries.find(x => x.id === save.planeLivery[m.name]) || null;
+const paintColor = (l, face) => (l && face.role ? l[face.role] : face.col);
+
+// chooser: a hangar dropdown picks which saved livery a plane flies in
+function liverySelect(m) {
+  const sel = document.createElement('select');
+  sel.append(new Option('Default paint', ''), ...save.liveries.map(l => new Option(l.name, l.id)));
+  sel.value = save.planeLivery[m.name] || '';
+  sel.onchange = () => { save.planeLivery[m.name] = sel.value; writeSave(); };
+  return sel;
+}
+
+// maker: the editor works on a draft copy, saved only when you press Save new or Update
+let liveryOpen = false, lvEdit = null, lvDraft = null;
+function toggleLivery() {
+  liveryOpen = !liveryOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('livery').style.display = liveryOpen ? 'flex' : 'none';
+  if (liveryOpen) { lvSelect(null); renderLivery(); }
+}
+// start a draft from a saved livery, or from the first preset for a new one
+function lvSelect(l) {
+  lvEdit = l;
+  const base = l || { name: 'New livery', ...PRESETS[0] };
+  lvDraft = { name: base.name, body: [...base.body], stripe: [...base.stripe], wing: [...base.wing], fin: [...base.fin], pics: picsOf(base) };
+}
+function renderLivery() {
+  const $ = id => document.getElementById(id);
+  $('lvName').value = lvDraft.name;
+  for (const k of LV_PARTS) $('lv' + k[0].toUpperCase() + k.slice(1)).value = hexOf(lvDraft[k]);
+  const pre = $('lvPresets');
+  pre.innerHTML = '';
+  PRESETS.forEach(pr => {
+    const b = document.createElement('button');
+    b.textContent = pr.name;
+    b.onclick = () => { for (const k of LV_PARTS) lvDraft[k] = [...pr[k]]; renderLivery(); };
+    pre.append(b);
+  });
+  const list = $('lvList');
+  list.innerHTML = '';
+  if (!save.liveries.length) list.innerHTML = '<p class="hint">No saved liveries yet. Make one above and press Save new.</p>';
+  save.liveries.forEach(l => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = l.name + (l === lvEdit ? ' (editing)' : '');
+    const btn = document.createElement('button');
+    btn.textContent = 'Edit';
+    btn.onclick = () => { lvSelect(l); renderLivery(); };
+    row.append(label, btn);
+    list.append(row);
+  });
+  $('lvUpdate').disabled = !lvEdit;
+  $('lvDelete').disabled = !lvEdit;
+  drawLiveryPreview();
+}
+function lvSaveNew() {
+  const l = { id: 'l' + Date.now().toString(36), name: lvDraft.name.trim() || 'Livery', body: [...lvDraft.body], stripe: [...lvDraft.stripe], wing: [...lvDraft.wing], fin: [...lvDraft.fin], pics: { ...lvDraft.pics } };
+  save.liveries.push(l);
+  writeSave();
+  lvSelect(l);
+  renderLivery();
+  renderHangar();
+}
+function lvUpdate() {
+  if (!lvEdit) return;
+  Object.assign(lvEdit, { name: lvDraft.name.trim() || 'Livery', body: [...lvDraft.body], stripe: [...lvDraft.stripe], wing: [...lvDraft.wing], fin: [...lvDraft.fin], pics: { ...lvDraft.pics } });
+  writeSave();
+  renderLivery();
+  renderHangar();
+}
+function lvDelete() {
+  if (!lvEdit) return;
+  save.liveries = save.liveries.filter(x => x !== lvEdit);
+  for (const k in save.planeLivery) if (save.planeLivery[k] === lvEdit.id) delete save.planeLivery[k];
+  writeSave();
+  lvSelect(null);
+  renderLivery();
+  renderHangar();
+}
+// three-quarter preview of the chosen plane, painted with the draft colours
+// the preview is drawn with the same WebGL shading as the flying aircraft, so the livery looks the way it will in flight
+let lvGL = null;
+function drawLiveryPreview() {
+  const cv = document.getElementById('lvPreview');
+  const m = MODELS[+document.getElementById('lvModel').value];
+  if (!lvGL) {
+    const g = cv.getContext('webgl', { antialias: true, alpha: false });
+    if (!g) return;
+    const compile = (type, src) => {
+      const s = g.createShader(type);
+      g.shaderSource(s, src);
+      g.compileShader(s);
+      if (!g.getShaderParameter(s, g.COMPILE_STATUS)) console.error(g.getShaderInfoLog(s));
+      return s;
+    };
+    const prog = g.createProgram();
+    g.attachShader(prog, compile(g.VERTEX_SHADER, PLANE_VS));
+    g.attachShader(prog, compile(g.FRAGMENT_SHADER, PLANE_FS));
+    g.linkProgram(prog);
+    lvGL = { g, prog, buf: g.createBuffer(), loc: {}, uni: {} };
+    for (const n of ['aPos', 'aNor', 'aCol', 'aUV']) lvGL.loc[n] = g.getAttribLocation(prog, n);
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uDim', 'uHasTex', 'uTex']) lvGL.uni[n] = g.getUniformLocation(prog, n);
+  }
+  const { g } = lvGL;
+  // every face of the model, painted with the draft livery and its pictures
+  const pics = picsOf(lvDraft);
+  const tris = [...m.mesh.map(f => {
+    const pic = PIC_SLOT[f.role] ? pics[PIC_SLOT[f.role]] : null;
+    return { pts: f.pts, vn: f.vn, col: paintColor(lvDraft, f), pic, uvFor: d => decalUVs(m, f, d) };
+  }), ...(m.gear || []).map(f => ({ pts: f.pts, vn: f.vn, col: f.col }))];
+  // a camera orbiting the model, sized so the whole aircraft fits the frame
+  const R = Math.hypot(m.ext.len, m.ext.span) / 2 || 1;
+  const a = 0.7, t = 0.22;
+  const dir = [Math.sin(a) * Math.cos(t), Math.sin(t), Math.cos(a) * Math.cos(t)];
+  const D = R * 2.6;
+  const eye = dir.map(v => v * D), f = dir.map(v => -v);
+  const right = norm(cross(f, [0, 1, 0])), up = cross(right, f);
+  const halfW = cv.width / 2, halfH = cv.height / 2;
+  const focal = 0.8 * Math.min(halfW, halfH) * D / R;
+  g.viewport(0, 0, cv.width, cv.height);
+  g.clearColor(0.043, 0.078, 0.141, 1);   // the preview's dark background
+  g.enable(g.DEPTH_TEST);
+  g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+  drawPassesGL(g, lvGL, tris, { eye, cr: right, cu: up, cf: f, focal, halfW, halfH, near: D - R * 1.5, far: D + R * 1.5, dim: 1 });
+}
+// wire the editor controls once the page is built
+for (const k of LV_PARTS) {
+  document.getElementById('lv' + k[0].toUpperCase() + k.slice(1)).addEventListener('input', e => { lvDraft[k] = rgbOf(e.target.value); drawLiveryPreview(); });
+}
+document.getElementById('lvName').addEventListener('input', e => { lvDraft.name = e.target.value; });
+// a logo is shrunk to at most 384 px before it is kept, so saved liveries stay small in browser storage
+for (const [slot, id] of [['body', 'Body'], ['tail', 'Tail'], ['wing', 'Wing']]) {
+  document.getElementById('lvPic' + id).addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const s = Math.min(1, 384 / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(img.width * s));
+        cv.height = Math.max(1, Math.round(img.height * s));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        lvDraft.pics[slot] = cv.toDataURL('image/png');
+        e.target.value = '';
+        renderLivery();
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+  document.getElementById('lvPic' + id + 'Clear').onclick = () => { lvDraft.pics[slot] = null; renderLivery(); };
+}
+document.getElementById('lvModel').addEventListener('change', drawLiveryPreview);
+MODELS.forEach((m, i) => document.getElementById('lvModel').append(new Option(m.name, i)));
+document.getElementById('lvSave').onclick = lvSaveNew;
+document.getElementById('lvUpdate').onclick = lvUpdate;
+document.getElementById('lvDelete').onclick = lvDelete;
+document.getElementById('lvClose').onclick = toggleLivery;
+document.getElementById('openLivery').onclick = toggleLivery;
+
+// ---------- aircraft systems
+// The gear can only go up in the air; it can always come down.
+function toggleGear() {
+  const p = plane;
+  if (!p.gear || !p.onGround) p.gear = !p.gear;
+}
+// Autopilot holds the heading and altitude it was engaged at, and only works in the air.
+function toggleAutopilot() {
+  const p = plane;
+  if (p.ap) p.ap = null;
+  else if (!p.onGround && !p.crashed) p.ap = { yaw: p.yaw, alt: p.pos[1] };
+}
+// Nav: flies to the waypoint (set by clicking the minimap), or else to the active contract. Arriving turns it off.
+let waypoint = null;
+let teleportOpen = false;
+// short message shown under the systems panel, so key presses that do nothing still explain why
+let noteText = '', noteUntil = 0;
+function flashNote(text) { noteText = text; noteUntil = performance.now() + 3000; }
+function toggleNav() {
+  const p = plane;
+  if (p.ap && p.ap.wp) { p.ap = null; flashNote('NAV OFF'); return; }
+  if (p.crashed) { flashNote('CRASHED: PRESS R TO RESTART'); return; }
+  if (p.onGround) { flashNote('TAKE OFF FIRST, THEN PRESS N'); return; }
+  const wp = waypoint || (save.contract ? { x: save.contract.x, z: save.contract.z } : null);
+  if (!wp) { flashNote('NO TARGET: CLICK THE MINIMAP TO SET A WAYPOINT'); return; }
+  p.ap = { yaw: p.yaw, alt: p.pos[1], wp };
+  flashNote(waypoint ? 'NAV TO WAYPOINT' : 'NAV TO CONTRACT');
+}
+// Teleport menu: pick a spot to start there. Air spots start 200 m up, heading along the spot's bearing at 60 m/s.
+function toggleTeleport() {
+  if (hangarOpen) return;
+  teleportOpen = !teleportOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('teleport').style.display = teleportOpen ? 'flex' : 'none';
+  if (teleportOpen) renderTeleport();
+}
+function renderTeleport() {
+  const list = document.getElementById('spots');
+  list.innerHTML = '';
+  SPOTS.forEach(spot => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = spot.name + (spot.air ? ' (in the air)' : ' (on the runway)');
+    const btn = document.createElement('button');
+    btn.textContent = 'Go';
+    btn.onclick = () => teleportTo(spot);
+    row.append(label, btn);
+    list.append(row);
+  });
+}
+function teleportTo(spot) {
+  resetPlane(plane.fuel);
+  const p = plane;
+  if (spot.air) {
+    p.pos = [spot.x, terrainAt(spot.x, spot.z) + 200, spot.z];
+    p.yaw = spot.hdg;
+    p.vel = [Math.sin(spot.hdg) * 60, 0, Math.cos(spot.hdg) * 60];
+    p.speed = 60;
+    p.throttle = 0.7;
+    p.onGround = false;
+  }
+  toggleTeleport();
+}
+
+// Flaps add lift and drag and lower the stall speed. The gear adds drag.
+const flapFrac = p => p.flaps / 3;
+const stallSpeed = p => p.model.stall * (1 - 0.15 * flapFrac(p));
+// Turns any angle into the range -PI to PI.
+const wrapPi = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+
+// ---------- physics
+function crash(msg) {
+  plane.crashed = true;
+  plane.crashMsg = msg;
+  logFlight('Crashed: ' + msg);
+}
+
+// Keeps the last 10 flights in the save: model, distance, airtime and result.
+function logFlight(result) {
+  const f = plane.flight;
+  save.log = [
+    { model: plane.model.name, km: (f.dist / 1000).toFixed(1), min: (f.secs / 60).toFixed(1), result },
+    ...save.log
+  ].slice(0, 10);
+  plane.flight = { dist: 0, secs: 0 };
+  writeSave();
+}
+
+// Wind drifts the air mass slowly and gusts a little, shaking the plane when it is airborne.
+let windT = 0;
+let wind = [0, 0];
+
+// Local time of day: one game hour per real minute, starting at 09:00.
+let simHour = 9;
+// 0.35 at night (moonlit, so the ground stays readable) up to 1 at midday, so the sky and ground darken smoothly.
+function daylight() {
+  return clamp(Math.sin((simHour - 6) / 12 * Math.PI) * 1.5, 0.35, 1);
+}
+
+function update(dt) {
+  const p = plane;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen) return;
+  const m = p.model;
+  windT += dt;
+  const ws = 3 + 2 * Math.sin(windT / 40), wd = 0.5 + 0.3 * Math.sin(windT / 90);
+  wind = [Math.sin(wd) * ws, Math.cos(wd) * ws];
+  simHour = (simHour + dt / 60) % 24;
+
+  const auth = Math.min(1, 0.3 + p.speed / 45);   // controls get stronger with airspeed
+  let pitchIn = (down('KeyS') || down('ArrowUp') ? 1 : 0) - (down('KeyW') || down('ArrowDown') ? 1 : 0);
+  let rollIn = (down('KeyD') || down('ArrowRight') ? 1 : 0) - (down('KeyA') || down('ArrowLeft') ? 1 : 0);
+  const yawIn = (down('KeyE') ? 1 : 0) - (down('KeyQ') ? 1 : 0);
+  const throttleIn = (down('ShiftLeft') || down('ShiftRight') ? 1 : 0) - (down('ControlLeft') || down('ControlRight') ? 1 : 0);
+
+  // autopilot steers toward the heading and altitude it was engaged at; stick input or touchdown switches it off
+  if (p.ap && (pitchIn || rollIn || p.onGround)) p.ap = null;
+  // nav mode turns the heading toward the waypoint and switches off on arrival
+  if (p.ap && p.ap.wp) {
+    const dx = p.ap.wp.x - p.pos[0], dz = p.ap.wp.z - p.pos[2];
+    if (Math.hypot(dx, dz) < 300) p.ap = null;
+    else p.ap.yaw = Math.atan2(dx, dz);
+  }
+  if (p.ap) {
+    const rollCmd = clamp(-wrapPi(p.ap.yaw - p.yaw), -0.45, 0.45);
+    rollIn = clamp((p.roll - rollCmd) * 3, -1, 1);
+    const pitchCmd = clamp((p.ap.alt - p.pos[1]) * 0.004, -0.2, 0.2);
+    pitchIn = clamp((pitchCmd - p.pitch) * 3, -1, 1);
+  }
+
+  p.throttle = clamp(p.throttle + throttleIn * 0.5 * dt, 0, 1);
+  p.fuel = Math.max(0, p.fuel - (0.004 * p.throttle + 0.0005) * dt);   // full throttle empties the tank in about 4 minutes
+  p.pitch = clamp(p.pitch + pitchIn * 1.0 * auth * dt, -1.4, 1.4);
+  p.roll = rollIn
+    ? clamp(p.roll - rollIn * 1.6 * auth * dt, -1.5, 1.5)
+    : p.roll * Math.exp(-1.5 * dt);                 // wings self-center when released
+
+  // coordinated turn from bank, plus rudder
+  const turnRate = clamp(-3 * G * Math.sin(p.roll) / Math.max(p.speed, 25), -1.2, 1.2);
+  p.yaw += (turnRate + yawIn * 0.6) * dt;
+
+  const ax = axes(p);
+  const wasOnGround = p.onGround;
+  let v = p.vel;
+
+  // thrust along the nose
+  v = add(v, mul(ax.f, p.throttle * (p.fuel > 0 ? m.thrust : 0) * dt));
+
+  // drag opposes motion
+  const s0 = len(v);
+  const dragK = m.drag * (1 + 0.4 * flapFrac(p) + (p.gear ? 0.5 : 0));
+  if (s0 > 0) v = sub(v, mul(norm(v), dragK * s0 * s0 * dt));
+
+  // lift along the wing normal, only above stall speed (flaps raise lift and lower the stall speed)
+  const lift = clamp((s0 - stallSpeed(p)) / 35, 0, 1) * LIFT_MAX * (1 + 0.25 * flapFrac(p));
+  v = add(v, mul(ax.up, lift * dt));
+
+  // gravity
+  v[1] -= G * dt;
+
+  // rolling resistance on the runway, extra braking with Space
+  if (wasOnGround) {
+    const k = 0.03 + (down('Space') ? 2.5 : 0);
+    v[0] *= Math.exp(-k * dt);
+    v[2] *= Math.exp(-k * dt);
+  }
+
+  // wings turn the flight path toward the nose
+  v = lerpV(v, mul(ax.f, len(v)), 1 - Math.exp(-1.6 * dt));
+
+  p.vel = v;
+  p.pos = add(p.pos, mul(v, dt));
+  p.speed = len(v);
+
+  if (!p.onGround) {
+    p.pos[0] += wind[0] * dt;
+    p.pos[2] += wind[1] * dt;
+    const turb = Math.hypot(wind[0], wind[1]) / 5;
+    p.roll += (Math.random() - 0.5) * 0.4 * turb * dt;
+    p.pitch += (Math.random() - 0.5) * 0.2 * turb * dt;
+    p.flight.dist += p.speed * dt;
+    p.flight.secs += dt;
+  }
+
+  // ground contact: the ground is the terrain under the plane
+  const gy = terrainAt(p.pos[0], p.pos[2]) + (p.gear ? m.gearLen : 0);
+  if (p.pos[1] <= gy) {
+    const impact = -v[1];
+    p.pos[1] = gy;
+    if (!wasOnGround) {
+      if (!p.gear) return crash('Gear up landing');
+      if (impact > 10) return crash('Hard landing');
+      if (Math.abs(p.roll) > 0.5) return crash('Wing strike');
+      if (p.pitch < -0.2) return crash('Nose-first impact');
+      if (p.pitch > 0.5) return crash('Tail strike');
+    } else if (Math.abs(p.roll) > 0.9) {
+      return crash('Wing strike');
+    }
+    if (!wasOnGround) awardLanding(impact);
+    if (v[1] < 0) v[1] = 0;
+    p.onGround = true;
+  } else {
+    p.onGround = false;
+  }
+
+  // buildings
+  for (const b of buildings) {
+    if (Math.abs(p.pos[0] - b.x) < b.w / 2 + 1 && Math.abs(p.pos[2] - b.z) < b.d / 2 + 1 && p.pos[1] < b.top) {
+      return crash('Hit a building');
+    }
+  }
+}
+
+// ---------- rendering helpers
+const fogAt = d => clamp((d - FOG_START) / (FOG_END - FOG_START), 0, 1);
+const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+
+// ---------- lighting and small helpers
+// Direction towards the sun: rises in the east, sets in the west, and stays a little above the horizon for shading.
+let sun = [0.6, 0.6, 0.5];
+function sunDir() {
+  const t = (simHour - 6) / 12 * Math.PI;
+  return norm([Math.cos(t) * 0.8, Math.max(Math.sin(t), 0.12), 0.5]);
+}
+// Faces turned to the sun are bright; shaded faces keep some ambient light.
+const shadeFor = n => clamp(0.42 + 0.58 * dot(n, sun), 0.42, 1);
+// Repeatable 0..1 hash of two integers, so each ground cell keeps its look between frames.
+function hash2(a, b) {
+  let h = (Math.imul(a, 374761393) + Math.imul(b, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+const STARS = Array.from({ length: 220 }, (_, i) => ({ x: hash2(i, 1), y: hash2(i, 2), r: 0.4 + hash2(i, 3) * 1.1, ph: hash2(i, 4) * 6.28 }));
+
+// Convex hull (monotone chain) of [x, z] points, used for the plane's ground shadow.
+function hull(pts) {
+  const s = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const p of s) {
+    while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop();
+    lo.push(p);
+  }
+  for (let i = s.length - 1; i >= 0; i--) {
+    const p = s[i];
+    while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop();
+    up.push(p);
+  }
+  up.pop(); lo.pop();
+  return lo.concat(up);
+}
+
+// Fills several camera-space polygons as one shape, so overlaps do not darken twice.
+function fillPolys(polys, fill) {
+  ctx.beginPath();
+  for (const cam of polys) {
+    const pts = screenPoly(cam);
+    if (pts.length < 3) continue;
+    pts.forEach((q, i) => {
+      const sx = W / 2 + q[0] * F / q[2], sy = H / 2 - q[1] * F / q[2];
+      i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+    });
+    ctx.closePath();
+  }
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+// Window grid on a building wall. pts[0] is the bottom corner, pts[1] runs along the wall, pts[3] runs up it.
+function windowsOn(pts, toCam, fill) {
+  const across = sub(pts[1], pts[0]), up = sub(pts[3], pts[0]);
+  const cols = Math.max(1, Math.floor(len(across) / 7)), rows = Math.max(1, Math.floor(len(up) / 6));
+  if (cols * rows > 400) return;
+  const at = (u, v) => toCam(add(pts[0], add(mul(across, u), mul(up, v))));
+  ctx.beginPath();
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      const u0 = (i + 0.3) / cols, u1 = (i + 0.7) / cols, v0 = (j + 0.3) / rows, v1 = (j + 0.65) / rows;
+      const q = [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
+      if (q.some(c => c[2] < NEAR)) continue;
+      q.forEach((c, k) => {
+        const sx = W / 2 + c[0] * F / c[2], sy = H / 2 - c[1] * F / c[2];
+        k ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+      });
+      ctx.closePath();
+    }
+  }
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
+
+// Half-length and half-span of a plane model, set when its mesh is built.
+function modelExtent(m) {
+  return m.ext;
+}
+
+// clip a camera-space polygon against the near plane, then project to screen
+function screenPoly(cam) {
+  const out = [];
+  for (let i = 0; i < cam.length; i++) {
+    const a = cam[i], b = cam[(i + 1) % cam.length];
+    const ai = a[2] >= NEAR, bi = b[2] >= NEAR;
+    if (ai) out.push(a);
+    if (ai !== bi) {
+      const t = (NEAR - a[2]) / (b[2] - a[2]);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, NEAR]);
+    }
+  }
+  return out;
+}
+
+let F = 1; // focal length in px, set each frame
+function drawPoly(cam, fill) {
+  const pts = screenPoly(cam);
+  if (pts.length < 3) return;
+  ctx.beginPath();
+  for (let i = 0; i < pts.length; i++) {
+    const sx = W / 2 + pts[i][0] * F / pts[i][2];
+    const sy = H / 2 - pts[i][1] * F / pts[i][2];
+    i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = fill;   // same colour stroke hides seams between cells
+  ctx.lineWidth = 1;
+  ctx.fill();
+  ctx.stroke();
+}
+
+// ---------- render
+function render() {
+  ctx = sceneCtx;
+  planeTris.length = 0;
+  const p = plane, ax = axes(p);
+  let eye, target, camUp;
+  const back = Math.max(45, modelExtent(p.model).len * 1.5 + 12);   // bigger planes sit further back
+  if (view === 0) {
+    eye = add(p.pos, add(mul(ax.f, -back), mul(ax.up, back * 0.27)));
+    target = add(p.pos, mul(ax.f, 10));
+    camUp = norm(add(mul([0, 1, 0], 0.5), mul(ax.up, 0.5)));
+  } else if (view === 1) {
+    eye = add(p.pos, add(mul(ax.f, 1.2), mul(ax.up, 1.1)));
+    target = add(eye, ax.f);
+    camUp = ax.up;
+  } else {
+    // side: from the right wing, level, looking at the plane
+    eye = add(p.pos, add(mul(ax.right, back), mul(ax.up, back * 0.2)));
+    target = add(p.pos, mul(ax.f, 5));
+    camUp = [0, 1, 0];
+  }
+  // the camera never sinks into a hill
+  eye[1] = Math.max(eye[1], terrainAt(eye[0], eye[2]) + 3);
+  const cf = norm(sub(target, eye));
+  const cr = norm(cross(camUp, cf));
+  const cu = cross(cf, cr);
+  const toCam = q => { const d = sub(q, eye); return [dot(d, cr), dot(d, cu), dot(d, cf)]; };
+  F = H * 0.9;
+
+  // sky, with the horizon placed where the ground meets infinity
+  const far = toCam(add(eye, [cf[0] * 1e6, 0, cf[2] * 1e6]));
+  const hy = far[2] > NEAR ? clamp(H / 2 - far[1] * F / far[2], 0, H) : H / 2;
+  const L = daylight();
+  sun = sunDir();
+  // sunrise and sunset warm the horizon
+  const sinT = Math.sin((simHour - 6) / 12 * Math.PI);
+  const HZ = mix(HORIZON, [255, 150, 90], clamp(1 - Math.abs(sinT) * 4, 0, 1) * 0.6);
+  const sky = ctx.createLinearGradient(0, 0, 0, Math.max(hy, 1));
+  sky.addColorStop(0, rgb(mul(SKY_TOP, L)));
+  sky.addColorStop(0.7, rgb(mix(mul(SKY_TOP, L), mul(HZ, L), 0.6)));
+  sky.addColorStop(1, rgb(mul(HZ, L)));
+  ctx.fillStyle = rgb(mul(HZ, L));
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, Math.max(hy, 0));
+
+  // stars fade in as the light fades
+  const night = clamp((0.5 - L) * 2.5, 0, 1);
+  if (night > 0 && hy > 0) {
+    const t = performance.now() / 1000;
+    for (const s of STARS) {
+      ctx.fillStyle = `rgba(255,255,255,${(night * (0.6 + 0.4 * Math.sin(t * 2 + s.ph))).toFixed(3)})`;
+      ctx.fillRect(s.x * W, s.y * hy, s.r, s.r);
+    }
+  }
+
+  // sun disc and glow, drawn where the sun actually is
+  const sunCam = toCam(add(eye, mul(sun, 1e5)));
+  const elev = clamp(Math.sin((simHour - 6) / 12 * Math.PI), 0, 1);
+  if (elev > 0 && sunCam[2] > NEAR) {
+    const sx = W / 2 + sunCam[0] * F / sunCam[2], sy = H / 2 - sunCam[1] * F / sunCam[2];
+    const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 150);
+    glow.addColorStop(0, `rgba(255,240,200,${(0.35 * elev).toFixed(3)})`);
+    glow.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(sx, sy, 150, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,250,225,${elev.toFixed(3)})`;
+    ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // terrain: each cell is a quad on the height field, shaded by its slope and coloured by height.
+  // Cells, runway and strips go into one list so hills hide what is behind them.
+  const terrainItems = [];
+  const bx = Math.floor(p.pos[0] / CELL), bz = Math.floor(p.pos[2] / CELL);
+  // terrain heights at every cell corner, sampled once per frame
+  const M = 2 * GRID_N + 1, cornerH = new Float32Array(M * M);
+  for (let a = 0; a < M; a++) for (let b = 0; b < M; b++) cornerH[a * M + b] = terrainAt((bx + a - GRID_N) * CELL, (bz + b - GRID_N) * CELL);
+  for (let i = -GRID_N; i < GRID_N; i++) {
+    for (let j = -GRID_N; j < GRID_N; j++) {
+      const gx = bx + i, gz = bz + j;
+      const x0 = gx * CELL, z0 = gz * CELL;
+      const dist = Math.hypot(x0 + CELL / 2 - eye[0], z0 + CELL / 2 - eye[2]);
+      if (dist > FOG_END * 1.2) continue;
+      const ia = (i + GRID_N) * M + (j + GRID_N);
+      const corners = [[x0, cornerH[ia], z0], [x0 + CELL, cornerH[ia + M], z0], [x0 + CELL, cornerH[ia + M + 1], z0 + CELL], [x0, cornerH[ia + 1], z0 + CELL]];
+      // the surface normal, turned to point up, sets the slope shading
+      let n = norm(cross(sub(corners[3], corners[0]), sub(corners[1], corners[0])));
+      if (n[1] < 0) n = mul(n, -1);
+      const h = (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4;
+      // mostly meadow, with patches of forest and dry field; rock and snow higher up
+      const roll = hash2(gx, gz);
+      let base = mix(GROUND_A, GROUND_B, hash2(gx + 101, gz - 77));
+      if (roll < 0.12) base = [44, 96, 48];
+      else if (roll < 0.2) base = [150, 140, 84];
+      // only flat lake surfaces are water; ground that the runway pulls down is not
+      if (corners.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [44, 96, 140];
+      base = mix(base, ROCK, clamp((h - 350) / 250, 0, 1) * 0.8);
+      base = mix(base, SNOW, clamp((h - 700) / 150, 0, 1));
+      const col = rgb(mix(mul(base, shadeFor(n) * L), mul(HZ, L), fogAt(dist)));
+      const cam = corners.map(toCam);
+      terrainItems.push({ d: dist, draw: () => drawPoly(cam, col) });
+    }
+  }
+
+  // runway, cut into 150 m pieces (surface, centre-line dashes and edge lines) that sort in with the terrain
+  const runwayPiece = (z, z1) => {
+    const q = (x0, x1, za, zb) => [[x0, 0.05, za], [x1, 0.05, za], [x1, 0.05, zb], [x0, 0.05, zb]].map(toCam);
+    const parts = [[q(-RUNWAY.x, RUNWAY.x, z, z1), rgb(RUNWAY_COL)]];
+    for (let s = RUNWAY.z0 + 20; s + 30 <= z1; s += 60) {
+      if (s >= z) parts.push([q(-1, 1, s, s + 30), '#e8e8e8']);
+    }
+    for (const side of [-1, 1]) {
+      const x = side * (RUNWAY.x - 1.4);
+      parts.push([q(x - 0.3, x + 0.3, z, z1), '#ececec']);
+    }
+    terrainItems.push({ d: Math.hypot(eye[0], (z + z1) / 2 - eye[2]), draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
+  };
+  for (let z = RUNWAY.z0; z < RUNWAY.z1; z += 150) runwayPiece(z, Math.min(z + 150, RUNWAY.z1));
+
+  // contract destination: a runway with a dashed centre line
+  if (save.contract) {
+    const c = save.contract, s = stripAxes(c), y0 = terrainAt(c.x, c.z) + 0.05;
+    const pt = (a, b) => toCam([c.x + s.ux * a + s.rx * b, y0, c.z + s.uz * a + s.rz * b]);
+    for (let a = -400; a < 400; a += 100) {
+      const a1 = a + 100, mid = a + 50;
+      const d = Math.hypot(c.x + s.ux * mid - eye[0], c.z + s.uz * mid - eye[2]);
+      const parts = [[[pt(a, -20), pt(a1, -20), pt(a1, 20), pt(a, 20)], rgb(RUNWAY_COL)]];
+      for (let t = -360; t < 400; t += 80) {
+        if (t >= a && t + 40 <= a1) parts.push([[pt(t, -1), pt(t + 40, -1), pt(t + 40, 1), pt(t, 1)], '#e8e8e8']);
+      }
+      terrainItems.push({ d, draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
+    }
+  }
+
+  // buildings and clouds, painted far to near
+  const items = [];
+  for (const b of buildings) {
+    const d = Math.hypot(b.x - eye[0], b.z - eye[2]);
+    if (d > FOG_END) continue;
+    if (blockedFrom(eye, [b.x, b.top, b.z])) continue;   // behind a hill
+    const hx = b.w / 2, hz = b.d / 2;
+    const g = b.y, t = b.top;   // ground and roof heights at the building's site
+    const faces = [
+      { n: [0, 1, 0], pts: [[b.x - hx, t, b.z - hz], [b.x + hx, t, b.z - hz], [b.x + hx, t, b.z + hz], [b.x - hx, t, b.z + hz]] },
+      { n: [0, 0, -1], pts: [[b.x - hx, g, b.z - hz], [b.x + hx, g, b.z - hz], [b.x + hx, t, b.z - hz], [b.x - hx, t, b.z - hz]] },
+      { n: [0, 0, 1], pts: [[b.x - hx, g, b.z + hz], [b.x + hx, g, b.z + hz], [b.x + hx, t, b.z + hz], [b.x - hx, t, b.z + hz]] },
+      { n: [-1, 0, 0], pts: [[b.x - hx, g, b.z - hz], [b.x - hx, g, b.z + hz], [b.x - hx, t, b.z + hz], [b.x - hx, t, b.z - hz]] },
+      { n: [1, 0, 0], pts: [[b.x + hx, g, b.z - hz], [b.x + hx, g, b.z + hz], [b.x + hx, t, b.z + hz], [b.x + hx, t, b.z - hz]] }
+    ];
+    for (const f of faces) {
+      const c = mul(f.pts.reduce((a, q) => add(a, q), [0, 0, 0]), 0.25);
+      if (dot(sub(eye, c), f.n) <= 0) continue;   // back-face cull
+      const fd = len(sub(c, eye));
+      const col = rgb(mix(mul(b.col, shadeFor(f.n) * L), mul(HZ, L), fogAt(fd)));
+      // windows on near walls: glass by day, lit rooms at night
+      const glass = L < 0.45 ? 'rgba(255,214,128,0.9)' : 'rgba(40,60,84,0.55)';
+      items.push({
+        d: fd,
+        draw: () => {
+          drawPoly(f.pts.map(toCam), col);
+          if (fd < 700 && f.n[1] === 0) windowsOn(f.pts, toCam, glass);
+        }
+      });
+    }
+  }
+  // clouds: a grey underside and a sunlit top, so each puff reads as a volume
+  const cloudLit = mix(mix([120, 124, 132], [255, 255, 255], L), [70, 74, 82], rainLevel() * 0.6);
+  for (const c of clouds) {
+    const d = Math.hypot(c.x - eye[0], c.y - eye[1], c.z - eye[2]);
+    if (d > FOG_END) continue;
+    const alpha = (0.9 * (1 - fogAt(d) * 0.7)).toFixed(3);
+    items.push({
+      d,
+      draw: () => {
+        const q = toCam([c.x, c.y, c.z]);
+        if (q[2] < NEAR) return;
+        const sx = W / 2 + q[0] * F / q[2], sy = H / 2 - q[1] * F / q[2], r = c.r * F / q[2];
+        ctx.fillStyle = rgba(mul(cloudLit, 0.78), alpha);
+        ctx.beginPath(); ctx.arc(sx, sy + r * 0.2, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = rgba(cloudLit, alpha);
+        ctx.beginPath(); ctx.arc(sx, sy - r * 0.12, r * 0.82, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+  }
+  // the aircraft itself: every face of its mesh, painted with the rest of the scene
+  const toWorld = v => add(p.pos, add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2])));
+  // hidden when a hill is in the way
+  if (view !== 1 && !blockedFrom(eye, p.pos)) {
+    // propeller blades turn about the hub, faster at higher throttle
+    const ang = performance.now() / 1000 * (4 + 40 * p.throttle), ca = Math.cos(ang), sa = Math.sin(ang), hub = p.model.hub;
+    const spun = pts => pts.map(([x, y, z]) => { const dy = y - hub[1]; return [x * ca - dy * sa, hub[1] + x * sa + dy * ca, z]; });
+    const lv = liveryOf(p.model);
+    // the mesh goes to the WebGL layer (drawn with a depth buffer), with its normals turned into world space
+    const toDir = v => add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2]));
+    const pics = lv ? picsOf(lv) : {};
+    for (const face of p.model.mesh) {
+      const pic = !face.spin && PIC_SLOT[face.role] ? pics[PIC_SLOT[face.role]] : null;
+      planeTris.push({ pts: (face.spin ? spun(face.pts) : face.pts).map(toWorld), vn: face.vn.map(toDir), col: paintColor(lv, face), pic, uvFor: d => decalUVs(p.model, face, d) });
+    }
+    if (p.gear) for (const face of p.model.gear) planeTris.push({ pts: face.pts.map(toWorld), vn: face.vn.map(toDir), col: face.col });
+    // a faint disc where the propeller turns
+    if (p.model.spec.prop) {
+      const hubW = toWorld(p.model.hub), hq = toCam(hubW);
+      if (hq[2] > NEAR) {
+        const rr = 0.95 * F / hq[2], sx = W / 2 + hq[0] * F / hq[2], sy = H / 2 - hq[1] * F / hq[2];
+        items.push({ d: len(sub(hubW, eye)), draw: () => { ctx.fillStyle = 'rgba(210,215,225,0.18)'; ctx.beginPath(); ctx.arc(sx, sy, rr, 0, Math.PI * 2); ctx.fill(); } });
+      }
+    }
+    // wingtip lights and tail strobe, drawn as glowing dots
+    const flashOn = performance.now() % 1200 < 90;
+    for (const light of p.model.lights) {
+      if (!lightsOn || (light.flash && !flashOn)) continue;
+      const w = toWorld(light.p), q = toCam(w);
+      if (q[2] < NEAR) continue;
+      const sx = W / 2 + q[0] * F / q[2], sy = H / 2 - q[1] * F / q[2];
+      items.push({
+        d: len(sub(w, eye)),
+        draw: () => {
+          ctx.fillStyle = rgba(light.col, 0.4);
+          ctx.beginPath(); ctx.arc(sx, sy, 14, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = rgb(light.col);
+          ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, Math.PI * 2); ctx.fill();
+        }
+      });
+    }
+  }
+
+  // roads: a dark ribbon along each straight road between towns, sitting on the terrain
+  for (const [a, b] of roads) {
+    const rl = Math.hypot(b.x - a.x, b.z - a.z), n = Math.max(1, Math.ceil(rl / 100));
+    const ux = (b.x - a.x) / rl, uz = (b.z - a.z) / rl, px = -uz * 6, pz = ux * 6;
+    for (let k = 0; k < n; k++) {
+      const s0 = k * rl / n, s1 = (k + 1) * rl / n;
+      const x0 = a.x + ux * s0, z0 = a.z + uz * s0, x1 = a.x + ux * s1, z1 = a.z + uz * s1;
+      const dist = Math.hypot((x0 + x1) / 2 - eye[0], (z0 + z1) / 2 - eye[2]);
+      if (dist > FOG_END) continue;
+      const quad = [[x0 + px, z0 + pz], [x1 + px, z1 + pz], [x1 - px, z1 - pz], [x0 - px, z0 - pz]].map(([x, z]) => toCam([x, terrainAt(x, z) + 0.15, z]));
+      terrainItems.push({ d: dist, draw: () => drawPoly(quad, '#4a4a52') });
+    }
+  }
+
+  // ground first, far to near, so the plane's shadow lands on top of it
+  terrainItems.sort((a, b) => b.d - a.d);
+  for (const it of terrainItems) it.draw();
+
+  // plane shadow on the ground, cast along the sun direction and fading with height
+  if (p.pos[1] < 400 && sun[1] > 0.05) {
+    const alpha = (0.4 * L * clamp(1 - p.pos[1] / 300, 0.15, 1)).toFixed(3);
+    const ground = [];
+    for (const face of p.model.mesh) {
+      for (const v of face.pts) {
+        const w = toWorld(v), k = Math.max(w[1], 0) / sun[1];
+        ground.push([w[0] - sun[0] * k, w[2] - sun[2] * k]);
+      }
+    }
+    fillPolys([hull(ground).map(([x, z]) => toCam([x, terrainAt(x, z) + 0.05, z]))], `rgba(0,0,0,${alpha})`);
+  }
+
+  items.sort((a, b) => b.d - a.d);
+  for (const it of items) it.draw();
+
+  drawPlaneGL({ eye, cr, cu, cf });
+
+  // flight path marker: where the plane is actually going
+  if (p.speed > 1) {
+    const q = toCam(add(p.pos, mul(norm(p.vel), 800)));
+    if (q[2] > NEAR) {
+      ctx.strokeStyle = 'rgba(255,210,63,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(W / 2 + q[0] * F / q[2], H / 2 - q[1] * F / q[2], 7, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+}
+
+// ---------- HUD
+function panel(x, y, w, h) {
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(x, y, w, h);
+}
+
+function drawGunsight() {
+  ctx.strokeStyle = 'rgba(255,210,63,0.9)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(W / 2 - 60, H / 2); ctx.lineTo(W / 2 - 16, H / 2);
+  ctx.moveTo(W / 2 + 16, H / 2); ctx.lineTo(W / 2 + 60, H / 2);
+  ctx.moveTo(W / 2, H / 2 - 10); ctx.lineTo(W / 2, H / 2 - 4);
+  ctx.stroke();
+}
+
+function setFont(px, bold) {
+  ctx.font = `${bold ? 'bold ' : ''}${px}px ui-monospace, Menlo, Consolas, monospace`;
+}
+
+// Pitch ladder: lines move with pitch and rotate with bank, like a real attitude indicator.
+function drawPitchLadder(p) {
+  const pxPerDeg = 9;
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(-p.roll);
+  ctx.translate(0, p.pitch * RAD2DEG * pxPerDeg);
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2;
+  setFont(12);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let d = -30; d <= 30; d += 5) {
+    if (d === 0) continue;
+    const y = -d * pxPerDeg;
+    const half = d % 10 === 0 ? 70 : 36;
+    ctx.setLineDash(d < 0 ? [8, 6] : []);   // dashed below the horizon
+    ctx.beginPath(); ctx.moveTo(-half, y); ctx.lineTo(half, y); ctx.stroke();
+    if (d % 10 === 0) {
+      ctx.fillText(String(Math.abs(d)), -half - 18, y);
+      ctx.fillText(String(Math.abs(d)), half + 18, y);
+    }
+  }
+  ctx.setLineDash([]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-160, 0); ctx.lineTo(-40, 0);
+  ctx.moveTo(40, 0); ctx.lineTo(160, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Vertical tape (airspeed or altitude) with a boxed readout in the middle.
+function verticalTape(x, value, step, labelEvery, side) {
+  const WIDTH = 78, HEIGHT = 220, TOP = H / 2 - HEIGHT / 2, PX = 22;   // PX = pixels per tick
+  panel(x, TOP, WIDTH, HEIGHT);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, TOP, WIDTH, HEIGHT); ctx.clip();
+  setFont(12);
+  ctx.textBaseline = 'middle';
+  const edge = side === 'left' ? x + WIDTH : x;
+  const reach = HEIGHT / 2 / PX + 2;
+  for (let i = Math.floor(value / step - reach); i <= value / step + reach; i++) {
+    const v = i * step;
+    const y = H / 2 - (v - value) / step * PX;
+    if (y < TOP || y > TOP + HEIGHT) continue;
+    const major = i % labelEvery === 0;
+    ctx.strokeStyle = '#cfe8f5';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(edge, y);
+    ctx.lineTo(edge + (side === 'left' ? -1 : 1) * (major ? 12 : 6), y);
+    ctx.stroke();
+    if (major) {
+      ctx.fillStyle = '#e8fff5';
+      ctx.textAlign = side === 'left' ? 'left' : 'right';
+      ctx.fillText(String(Math.round(v)), side === 'left' ? x + 6 : x + WIDTH - 6, y);
+    }
+  }
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(x, H / 2 - 13, WIDTH, 26);
+  ctx.strokeStyle = '#3ddc97';
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x + 0.5, H / 2 - 12.5, WIDTH - 1, 25);
+  setFont(16, true);
+  ctx.fillStyle = '#3ddc97';
+  ctx.textAlign = 'center';
+  ctx.fillText(String(Math.round(value)), x + WIDTH / 2, H / 2);
+}
+
+// Heading strip across the top, with a pointer at the current heading.
+function headingStrip(hdg) {
+  const WIDTH = 420, X = W / 2 - WIDTH / 2, Y = 16, HEIGHT = 40, PXDEG = WIDTH / 90;
+  const CARDINALS = ['N', 'E', 'S', 'W'];
+  panel(X, Y, WIDTH, HEIGHT);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(X, Y, WIDTH, HEIGHT); ctx.clip();
+  setFont(13);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  for (let d = Math.floor((hdg - 50) / 10) * 10; d <= hdg + 50; d += 10) {
+    const x = W / 2 + (d - hdg) * PXDEG;
+    const n = ((d % 360) + 360) % 360;
+    ctx.strokeStyle = '#cfe8f5';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, Y + HEIGHT - 2);
+    ctx.lineTo(x, Y + HEIGHT - (n % 30 === 0 ? 14 : 8));
+    ctx.stroke();
+    if (n % 30 === 0) {
+      ctx.fillStyle = '#e8fff5';
+      ctx.fillText(n % 90 === 0 ? CARDINALS[n / 90] : String(n).padStart(3, '0'), x, Y + 13);
+    }
+  }
+  ctx.restore();
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath();
+  ctx.moveTo(W / 2, Y + HEIGHT + 2);
+  ctx.lineTo(W / 2 - 6, Y + HEIGHT + 12);
+  ctx.lineTo(W / 2 + 6, Y + HEIGHT + 12);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawHUD(now) {
+  const p = plane;
+  const hdg = ((p.yaw * RAD2DEG) % 360 + 360) % 360;
+  const vsFpm = p.vel[1] * 196.85;
+
+  drawPitchLadder(p);
+  headingStrip(hdg);
+  const windKt = Math.hypot(wind[0], wind[1]) * 1.944;
+  const windFrom = ((Math.atan2(wind[0], wind[1]) * RAD2DEG + 180) % 360 + 360) % 360;
+  setFont(12);
+  ctx.fillStyle = '#8fb3c9';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('WIND ' + String(Math.round(windFrom)).padStart(3, '0') + '° ' + Math.round(windKt) + ' kt', W / 2, 60);
+  const hh = Math.floor(simHour), mm = Math.floor((simHour - hh) * 60);
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#8fb3c9';
+  ctx.fillText('LOCAL ' + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'), W - 16, 16);
+  verticalTape(28, p.speed * 1.944, 10, 2, 'left');              // airspeed, knots
+  verticalTape(W - 28 - 78, p.pos[1] * 3.281, 100, 2, 'right');  // altitude, feet
+  setFont(12);
+  ctx.fillStyle = '#8fb3c9';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.fillText('V/S ' + (vsFpm >= 0 ? '+' : '') + vsFpm.toFixed(0), W - 28 + 78, H / 2 + 118);
+  ctx.textAlign = 'left';
+  ctx.fillText('KT', 28, H / 2 + 118);
+
+  // model, coins and last landing
+  panel(16, 16, 230, 104);
+  setFont(13);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = '#8fb3c9';
+  ctx.fillText(p.model.name, 28, 24);
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillText('COINS ' + save.coins, 28, 44);
+  if (p.lastReward) {
+    ctx.fillStyle = '#3ddc97';
+    ctx.fillText('LANDED +' + p.lastReward, 28, 64);
+  }
+  if (save.contract) {
+    const c = save.contract;
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText('TO ' + c.name + ' ' + (Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) / 1000).toFixed(1) + ' km', 28, 84);
+  }
+
+  // throttle lever bar along the bottom
+  const bw = 260, bx = W / 2 - bw / 2, by = H - 40;
+  panel(bx - 12, by - 24, bw + 24, 44);
+  setFont(12);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#8fb3c9';
+  ctx.fillText('THR ' + Math.round(p.throttle * 100) + '%', bx, by - 12);
+  ctx.fillStyle = p.fuel < 0.2 ? '#ff4d4d' : '#8fb3c9';
+  ctx.textAlign = 'right';
+  ctx.fillText((p.fuel < 0.2 ? 'LOW FUEL ' : 'FUEL ') + Math.round(p.fuel * 100) + '%', bx + bw, by - 12);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.fillRect(bx, by, bw, 10);
+  ctx.fillStyle = p.throttle > 0.9 ? '#ff9f43' : '#3ddc97';
+  ctx.fillRect(bx, by, bw * p.throttle, 10);
+
+  if (!p.onGround && !p.crashed && p.speed < stallSpeed(p) + 4 && Math.floor(now / 250) % 2 === 0) {
+    setFont(28, true);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ff4d4d';
+    ctx.fillText('STALL', W / 2, H / 2 + 60);
+  }
+
+  if (p.crashed) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, H / 2 - 60, W, 120);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    setFont(32, true);
+    ctx.fillStyle = '#ff6b6b';
+    ctx.fillText('CRASHED: ' + p.crashMsg.toUpperCase(), W / 2, H / 2 - 30);
+    setFont(18);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('Press R to restart', W / 2, H / 2 + 18);
+  }
+}
+
+// ---------- minimap: north up, to scale, with flight trail
+const trail = [];
+let lastTrailAt = 0;
+function drawMinimap() {
+  const S = Math.min(460, Math.round(H * 0.45)), R = 1500, ox = W - S - 16, oy = H - S - 16, sc = S / 2 / R;
+  const p = plane, m = p.model;
+  const cx = ox + S / 2, cy = oy + S / 2;
+  const toMap = (x, z) => [cx + (x - p.pos[0]) * sc, cy - (z - p.pos[2]) * sc];
+
+  // record the flight path every half second while airborne
+  const nowMs = performance.now();
+  if (!p.onGround && !p.crashed && nowMs - lastTrailAt > 500) {
+    trail.push([p.pos[0], p.pos[2]]);
+    if (trail.length > 200) trail.shift();
+    lastTrailAt = nowMs;
+  }
+
+  // frame and terrain
+  ctx.fillStyle = '#1b2430';
+  ctx.fillRect(ox - 4, oy - 4, S + 8, S + 8);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ox, oy, S, S);
+  ctx.clip();
+  ctx.fillStyle = 'rgb(96,140,78)';
+  ctx.fillRect(ox, oy, S, S);
+
+  // range rings around the plane
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  for (const r of [500, 1000, 1500]) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * sc, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // runway: a real rectangle with a dashed centre line
+  const [rwLeftX, rwTopY] = toMap(-RUNWAY.x, RUNWAY.z1);
+  const [rwRightX, rwBottomY] = toMap(RUNWAY.x, RUNWAY.z0);
+  ctx.fillStyle = 'rgb(58,60,66)';
+  ctx.fillRect(rwLeftX, rwTopY, rwRightX - rwLeftX, rwBottomY - rwTopY);
+  const [clA, clB] = [toMap(0, RUNWAY.z0), toMap(0, RUNWAY.z1)];
+  ctx.strokeStyle = '#e8e8e8';
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath(); ctx.moveTo(clA[0], clA[1]); ctx.lineTo(clB[0], clB[1]); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // buildings at true footprint size; tall towers darker
+  for (const b of buildings) {
+    const [bx, by] = toMap(b.x, b.z);
+    if (bx < ox - 10 || bx > ox + S + 10 || by < oy - 10 || by > oy + S + 10) continue;
+    const bw = Math.max(1.5, b.w * sc), bd = Math.max(1.5, b.d * sc);
+    ctx.fillStyle = b.h > 150 ? 'rgb(70,74,82)' : 'rgb(150,150,145)';
+    ctx.fillRect(bx - bw / 2, by - bd / 2, bw, bd);
+  }
+
+  // flight trail
+  if (trail.length > 1) {
+    ctx.strokeStyle = 'rgba(255,210,63,0.7)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    trail.forEach(([x, z], i) => {
+      const [tx, ty] = toMap(x, z);
+      i ? ctx.lineTo(tx, ty) : ctx.moveTo(tx, ty);
+    });
+    ctx.stroke();
+  }
+
+  // contract runway on the map
+  if (save.contract) {
+    const c = save.contract, s = stripAxes(c);
+    const corner = (a, b) => toMap(c.x + s.ux * a + s.rx * b, c.z + s.uz * a + s.rz * b);
+    ctx.fillStyle = 'rgb(58,60,66)';
+    ctx.beginPath();
+    [corner(-400, -20), corner(400, -20), corner(400, 20), corner(-400, 20)].forEach(([x, y], i) => {
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // contract destination marker
+  if (save.contract) {
+    const [dx, dy] = toMap(save.contract.x, save.contract.z);
+    ctx.fillStyle = '#ffd23f';
+    ctx.beginPath();
+    ctx.moveTo(dx, dy - 7); ctx.lineTo(dx + 7, dy); ctx.lineTo(dx, dy + 7); ctx.lineTo(dx - 7, dy);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // waypoint marker, if one is set
+  if (waypoint) {
+    const [wx, wy] = toMap(waypoint.x, waypoint.z);
+    ctx.strokeStyle = '#4fd8ff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(wx - 5, wy - 5, 10, 10);
+  }
+
+  // the plane, drawn from its real proportions (icon scaled up so it reads on the map)
+  const { len: halfLen, span: halfSpan } = modelExtent(m);
+  const k = 24 / halfLen;
+  const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw), rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
+  const icon = (a, b) => [cx + (a * fx + b * rx) * k, cy - (a * fz + b * rz) * k];
+  const strokeIcon = (a, b, w, col) => {
+    const [x0, y0] = icon(a[0], a[1]), [x1, y1] = icon(b[0], b[1]);
+    ctx.strokeStyle = col;
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+  };
+  const body = [[-halfLen, 0], [halfLen, 0]];
+  const wing = [[0.15 * halfLen, -halfSpan], [0.15 * halfLen, halfSpan]];
+  const tail = [[-halfLen, -0.35 * halfSpan], [-halfLen, 0.35 * halfSpan]];
+  for (const [w, col] of [[7, '#1b2430'], [4, '#ffd23f']]) {
+    strokeIcon(body[0], body[1], w, col);
+    strokeIcon(wing[0], wing[1], w, col);
+    strokeIcon(tail[0], tail[1], w, col);
+  }
+  ctx.restore();
+
+  // labels: north arrow, scale bar, title
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 13px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('N', cx, oy + 6);
+  ctx.beginPath();
+  ctx.moveTo(cx, oy + 22); ctx.lineTo(cx - 4, oy + 30); ctx.lineTo(cx + 4, oy + 30); ctx.closePath();
+  ctx.fill();
+  ctx.textAlign = 'left';
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.fillText('MAP', ox + 8, oy + 6);
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(ox + 12, oy + S - 14); ctx.lineTo(ox + 12 + 500 * sc, oy + S - 14);
+  ctx.stroke();
+  ctx.fillText('500 m', ox + 12, oy + S - 30);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox + 0.5, oy + 0.5, S - 1, S - 1);
+}
+
+// Aircraft systems under the model panel: gear, flaps, autopilot, lights, sound, height, speed, weather and camera.
+function drawStatus() {
+  const p = plane, X = 16, Y = 130, ROW = 16;
+  const agl = (p.pos[1] - terrainAt(p.pos[0], p.pos[2]) - (p.gear ? p.model.gearLen : 0)) * 3.281;
+  const gs = Math.hypot(p.vel[0] + wind[0], p.vel[2] + wind[1]) * 1.944;
+  const rain = rainLevel();
+  const rows = [
+    ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
+    ['FLAPS', p.flaps + ' / 3', '#8fb3c9'],
+    ['AUTOPILOT', p.ap ? (p.ap.wp ? 'NAV' : 'ENGAGED') : 'OFF', p.ap ? '#3ddc97' : '#8fb3c9'],
+    ['LIGHTS', lightsOn ? 'ON' : 'OFF', '#8fb3c9'],
+    ['ENGINE SOUND', soundOn ? 'ON' : 'OFF', '#8fb3c9'],
+    ['AGL', Math.round(agl) + ' ft', '#8fb3c9'],
+    ['GROUND SPEED', Math.round(gs) + ' kt', '#8fb3c9'],
+    ['WEATHER', rain > 0.4 ? 'RAIN' : rain > 0.1 ? 'CLOUDY' : 'CLEAR', '#8fb3c9'],
+    ['FPS', String(Math.round(fps)), '#8fb3c9'],
+    ['VIEW', VIEW_NAMES[view], '#8fb3c9']
+  ];
+  panel(X, Y, 230, rows.length * ROW + 16);
+  setFont(12);
+  ctx.textBaseline = 'top';
+  rows.forEach(([label, value, col], i) => {
+    const y = Y + 8 + i * ROW;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#8fb3c9';
+    ctx.fillText(label, X + 12, y);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = col;
+    ctx.fillText(value, X + 218, y);
+  });
+  if (performance.now() < noteUntil) {
+    setFont(16, true);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ffd23f';
+    ctx.fillText(noteText, W / 2, H / 2 + 90);
+  }
+}
+
+// ---------- engine sound: a low hum that rises with throttle (starts on the first key press)
+let audio = null;
+function startAudio() {
+  if (audio) return;
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ac.createOscillator(), filter = ac.createBiquadFilter(), gain = ac.createGain();
+    osc.type = 'sawtooth';
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    gain.gain.value = 0;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ac.destination);
+    osc.start();
+    audio = { ac, osc, gain };
+  } catch (e) { /* no audio support: the sim runs silently */ }
+}
+function updateSound() {
+  if (!audio) return;
+  const t = audio.ac.currentTime;
+  const on = soundOn && !plane.crashed && !hangarOpen;
+  audio.osc.frequency.setTargetAtTime(55 + 110 * plane.throttle, t, 0.1);
+  audio.gain.gain.setTargetAtTime(on ? 0.02 + 0.08 * plane.throttle : 0, t, 0.1);
+}
+
+// Rain comes and goes slowly: 0 is clear, 1 is heavy rain.
+function rainLevel() { return clamp(Math.sin(windT / 150) * 1.4 - 0.4, 0, 1); }
+// rain: thin streaks falling across the screen while it rains
+const drops = Array.from({ length: 220 }, (_, i) => ({ x: hash2(i, 91), y: hash2(i, 92), v: 0.6 + hash2(i, 93) * 0.6 }));
+function drawRain(now) {
+  const amount = rainLevel();
+  if (amount < 0.05) return;
+  const n = Math.round(drops.length * amount), len = 14 + 10 * amount;
+  ctx.strokeStyle = `rgba(200,215,235,${(0.25 + 0.3 * amount).toFixed(2)})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const d = drops[i], y = ((d.y + now / 1000 * 0.9 * d.v) % 1) * H, x = (d.x * W + y * 0.12) % W;
+    ctx.moveTo(x, y); ctx.lineTo(x - 2, y + len);
+  }
+  ctx.stroke();
+}
+
+// ---------- aircraft in WebGL: a depth buffer, smooth per-vertex normals and a Blinn-Phong sun light
+const planeTris = [];   // filled each frame by render(): {pts, vn, col}
+const PLANE_VS = `
+attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute vec2 aUV;
+uniform vec3 uEye, uR, uU, uF;
+uniform float uFocal, uHalfW, uHalfH, uNear, uFar;
+varying vec3 vN; varying vec3 vC; varying vec3 vW; varying vec2 vUV;
+void main() {
+  vec3 d = aPos - uEye;
+  vec3 c = vec3(dot(d, uR), dot(d, uU), dot(d, uF));
+  float z = (c.z - uNear) / (uFar - uNear) * 2.0 - 1.0;
+  gl_Position = vec4(c.x * uFocal / uHalfW, c.y * uFocal / uHalfH, z * c.z, c.z);
+  vN = aNor; vC = aCol; vW = aPos; vUV = aUV;
+}`;
+const PLANE_FS = `
+precision highp float;
+uniform vec3 uEye, uSun;
+uniform float uDim, uHasTex;
+uniform sampler2D uTex;
+varying vec3 vN; varying vec3 vC; varying vec3 vW; varying vec2 vUV;
+void main() {
+  vec3 n = normalize(vN);
+  vec3 v = normalize(uEye - vW);
+  if (dot(n, v) < 0.0) n = -n;
+  vec3 h = normalize(uSun + v);
+  float diff = max(dot(n, uSun), 0.0);
+  float hemi = 0.5 + 0.5 * n.y;
+  float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.45;
+  // an uploaded picture is laid over the body where its coordinates fall inside 0..1
+  vec3 base = vC;
+  if (uHasTex > 0.5 && vUV.x >= 0.0 && vUV.x <= 1.0 && vUV.y >= 0.0 && vUV.y <= 1.0) {
+    vec4 t = texture2D(uTex, vUV);
+    base = mix(base, t.rgb, t.a);
+  }
+  vec3 col = base * (0.3 + 0.62 * diff + 0.25 * hemi) * uDim + vec3(spec);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+let planeProg = null, planeBuf = null, planeLoc = {}, planeUni = {};
+if (gl) {
+  const compile = (type, src) => {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  planeProg = gl.createProgram();
+  gl.attachShader(planeProg, compile(gl.VERTEX_SHADER, PLANE_VS));
+  gl.attachShader(planeProg, compile(gl.FRAGMENT_SHADER, PLANE_FS));
+  gl.linkProgram(planeProg);
+  gl.useProgram(planeProg);
+  gl.enable(gl.DEPTH_TEST);
+  planeBuf = gl.createBuffer();
+  for (const n of ['aPos', 'aNor', 'aCol', 'aUV']) planeLoc[n] = gl.getAttribLocation(planeProg, n);
+  for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uDim', 'uHasTex', 'uTex']) planeUni[n] = gl.getUniformLocation(planeProg, n);
+}
+// uploaded pictures ("decals"): the picture is decoded once, then each WebGL context keeps its own texture
+const decals = {};   // data URL -> { img, ready, aspect, tex: Map(context -> texture) }
+function decalFor(url) {
+  if (!url) return null;
+  if (!decals[url]) {
+    const img = new Image();
+    const d = { img, ready: false, aspect: 1, tex: new Map() };
+    img.onload = () => { d.ready = true; d.aspect = img.width / img.height; if (liveryOpen) drawLiveryPreview(); };
+    img.src = url;
+    decals[url] = d;
+  }
+  return decals[url];
+}
+// binds the picture to texture unit 0 for this context; false when there is none ready
+function bindDecal(g, d) {
+  if (!d || !d.ready) return false;
+  let tex = d.tex.get(g);
+  if (!tex) {
+    tex = g.createTexture();
+    g.bindTexture(g.TEXTURE_2D, tex);
+    g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL, true);   // so v = 0 is the bottom of the picture
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, d.img);
+    d.tex.set(g, tex);
+  }
+  g.activeTexture(g.TEXTURE0);
+  g.bindTexture(g.TEXTURE_2D, tex);
+  return true;
+}
+// the extent in model space of one part (body or fin), found once per model
+const modelBox = (m, role) => {
+  m.boxes = m.boxes || {};
+  if (!m.boxes[role]) {
+    const b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, z0: Infinity, z1: -Infinity };
+    for (const f of m.mesh) if (f.role === role) for (const p of f.pts) {
+      b.x0 = Math.min(b.x0, p[0]); b.x1 = Math.max(b.x1, p[0]);
+      b.z0 = Math.min(b.z0, p[2]); b.z1 = Math.max(b.z1, p[2]);
+      b.y0 = Math.min(b.y0, p[1]); b.y1 = Math.max(b.y1, p[1]);
+    }
+    m.boxes[role] = b;
+  }
+  return m.boxes[role];
+};
+// which picture slot a part of the aircraft takes: body, tail (fin) or wing
+const PIC_SLOT = { body: 'body', fin: 'tail', wing: 'wing' };
+// a livery keeps its pictures in pics; older liveries had one picture for the body and tail
+const picsOf = l => l.pics || { body: l.decal || null, tail: l.decal || null, wing: null };
+// the body and tail get the picture projected from the side, at the height of that part; its shape is kept
+// the wing gets it laid flat across the span, its shape kept too
+function decalUVs(m, face, d) {
+  if (!d || !d.ready || !PIC_SLOT[face.role]) return null;
+  const b = modelBox(m, face.role);
+  if (face.role === 'wing') {
+    const pw = b.x1 - b.x0, ph = pw / d.aspect, xc = (b.x0 + b.x1) / 2, zc = (b.z0 + b.z1) / 2;
+    return face.pts.map(p => [0.5 + (p[0] - xc) / pw, 0.5 + (p[2] - zc) / ph]);
+  }
+  const h = b.y1 - b.y0, wPic = h * d.aspect, zc = (b.z0 + b.z1) / 2;
+  return face.pts.map(p => [0.5 + (p[2] - zc) / wPic, (p[1] - b.y0) / h]);
+}
+// packs triangles into the vertex layout the plane shaders read: position, normal, colour, picture coordinates
+function packTris(tris) {
+  let count = 0;
+  for (const t of tris) count += (t.pts.length - 2) * 3;
+  const data = new Float32Array(count * 11);
+  let o = 0;
+  for (const t of tris) {
+    const c = t.col.map(v => v / 255);
+    // faces are convex polygons: fan them into triangles
+    for (let i = 1; i < t.pts.length - 1; i++) {
+      for (const k of [0, i, i + 1]) {
+        data.set(t.pts[k], o); data.set(t.vn[k], o + 3); data.set(c, o + 6);
+        data.set(t.uv ? t.uv[k] : [-1, -1], o + 9);
+        o += 11;
+      }
+    }
+  }
+  return { data, count };
+}
+
+// draws every triangle of the aircraft into the WebGL layer, from the same camera as the scene
+// draws triangles with the plane shader. Each triangle may carry a picture (t.pic, a data URL) and t.uvFor(decal) for its coordinates.
+// One texture is bound at a time, so triangles are drawn in one pass per picture.
+function drawPassesGL(g, s, tris, cam) {
+  g.useProgram(s.prog);
+  g.bindBuffer(g.ARRAY_BUFFER, s.buf);
+  const stride = 44;   // per vertex: position, normal, colour, picture coordinates
+  g.enableVertexAttribArray(s.loc.aPos); g.vertexAttribPointer(s.loc.aPos, 3, g.FLOAT, false, stride, 0);
+  g.enableVertexAttribArray(s.loc.aNor); g.vertexAttribPointer(s.loc.aNor, 3, g.FLOAT, false, stride, 12);
+  g.enableVertexAttribArray(s.loc.aCol); g.vertexAttribPointer(s.loc.aCol, 3, g.FLOAT, false, stride, 24);
+  g.enableVertexAttribArray(s.loc.aUV); g.vertexAttribPointer(s.loc.aUV, 2, g.FLOAT, false, stride, 36);
+  g.uniform3fv(s.uni.uEye, cam.eye);
+  g.uniform3fv(s.uni.uR, cam.cr);
+  g.uniform3fv(s.uni.uU, cam.cu);
+  g.uniform3fv(s.uni.uF, cam.cf);
+  g.uniform1f(s.uni.uFocal, cam.focal);
+  g.uniform1f(s.uni.uHalfW, cam.halfW);
+  g.uniform1f(s.uni.uHalfH, cam.halfH);
+  g.uniform1f(s.uni.uNear, cam.near);
+  g.uniform1f(s.uni.uFar, cam.far);
+  g.uniform3fv(s.uni.uSun, sun);
+  g.uniform1f(s.uni.uDim, cam.dim);
+  g.uniform1i(s.uni.uTex, 0);
+  const groups = new Map();
+  for (const t of tris) {
+    const k = t.pic || '';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(t);
+  }
+  for (const [url, list] of groups) {
+    const d = url ? decalFor(url) : null;
+    const bound = bindDecal(g, d);
+    g.uniform1f(s.uni.uHasTex, bound ? 1 : 0);
+    const { data, count } = packTris(list.map(t => ({ pts: t.pts, vn: t.vn, col: t.col, uv: bound ? t.uvFor(d) : null })));
+    g.bufferData(g.ARRAY_BUFFER, data, g.DYNAMIC_DRAW);
+    g.drawArrays(g.TRIANGLES, 0, count);
+  }
+}
+// draws every triangle of the aircraft into the WebGL layer, from the same camera as the scene
+function drawPlaneGL({ eye, cr, cu, cf }) {
+  if (!gl) return;
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  if (!planeTris.length) return;
+  drawPassesGL(gl, { prog: planeProg, buf: planeBuf, loc: planeLoc, uni: planeUni }, planeTris,
+    { eye, cr, cu, cf, focal: F, halfW: W / 2, halfH: H / 2, near: NEAR, far: 20000, dim: 0.3 + 0.7 * daylight() });
+}
+
+// ---------- pilots: sign in, create a pilot, switch pilot
+const pilotsOf = () => readJSON(PILOTS_KEY, {});
+// the password is stored as a SHA-256 hash with a random salt, never as typed
+const hashPassword = async (salt, password) => {
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + password)));
+  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+};
+const randomHex = () => [...crypto.getRandomValues(new Uint8Array(12))].map(b => b.toString(16).padStart(2, '0')).join('');
+function showLogin() {
+  pilot = null;
+  hangarOpen = liveryOpen = teleportOpen = homeOpen = false;
+  for (const id of ['hangar', 'livery', 'teleport', 'home']) document.getElementById(id).style.display = 'none';
+  for (const k in keys) keys[k] = false;
+  document.getElementById('loginMsg').textContent = '';
+  document.getElementById('login').style.display = 'flex';
+  renderPilots();
+}
+function signIn(name, saved) {
+  pilot = name;
+  const pilots = pilotsOf();
+  if (pilots[name.toLowerCase()]) {
+    pilots[name.toLowerCase()].lastSignIn = new Date().toISOString();
+    try { localStorage.setItem(PILOTS_KEY, JSON.stringify(pilots)); } catch (e) { /* storage blocked */ }
+  }
+  save = { ...JSON.parse(JSON.stringify(DEFAULT_SAVE)), ...(saved || readJSON(pilotKey(name), {})) };
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('loginPass').value = '';
+  resetPlane();
+  refreshPads();
+  renderHangar();
+  showHome();
+}
+// ---------- home screen: after signing in, pick Fly, the hangar, the livery maker or admin
+let homeOpen = false;
+const isAdmin = () => !!pilot && pilot.toLowerCase() === 'human';
+function showHome() {
+  homeOpen = true;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('homeWho').textContent = `Signed in as ${pilot}`;
+  document.getElementById('homeAdmin').style.display = isAdmin() ? '' : 'none';
+  document.getElementById('home').style.display = 'flex';
+}
+function hideHome() {
+  homeOpen = false;
+  document.getElementById('home').style.display = 'none';
+}
+function renderPilots() {
+  const box = document.getElementById('pilots');
+  box.innerHTML = '';
+  const list = Object.values(pilotsOf());
+  if (!list.length) return;
+  const title = document.createElement('p');
+  title.className = 'hint';
+  title.textContent = 'Existing pilots:';
+  box.append(title);
+  for (const p of list) {
+    const b = document.createElement('button');
+    b.textContent = p.name;
+    b.onclick = () => { document.getElementById('loginName').value = p.name; document.getElementById('loginPass').focus(); };
+    box.append(b);
+  }
+}
+async function submitLogin(create) {
+  const msg = document.getElementById('loginMsg');
+  const name = document.getElementById('loginName').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  msg.textContent = '';
+  if (!name || name.length > 16) { msg.textContent = 'Pick a pilot name of up to 16 characters.'; return; }
+  if (!window.crypto || !crypto.subtle) { msg.textContent = 'Sign-in needs this page opened on localhost or over https.'; return; }
+  const pilots = pilotsOf();
+  const key = name.toLowerCase();
+  if (create) {
+    if (pilots[key]) { msg.textContent = 'That pilot already exists. Sign in instead.'; return; }
+    if (pass.length < 4) { msg.textContent = 'Use a password of at least 4 characters.'; return; }
+    const salt = randomHex();
+    const hash = await hashPassword(salt, pass);
+    // the first pilot made here takes over the save from before pilots existed
+    const legacy = Object.keys(pilots).length ? null : readJSON(SAVE_KEY, null);
+    pilots[key] = { name, salt, hash, created: new Date().toISOString(), lastSignIn: null };
+    try {
+      localStorage.setItem(PILOTS_KEY, JSON.stringify(pilots));
+      if (legacy) localStorage.setItem(pilotKey(name), JSON.stringify(legacy));
+    } catch (e) { msg.textContent = 'Browser storage is blocked, so the pilot cannot be saved.'; return; }
+    signIn(name, legacy);
+  } else {
+    const p = pilots[key];
+    if (!p) { msg.textContent = 'No pilot with that name. Create one instead.'; return; }
+    if ((await hashPassword(p.salt, pass)) !== p.hash) { msg.textContent = 'Wrong password.'; return; }
+    signIn(p.name);
+  }
+}
+document.getElementById('loginIn').onclick = () => submitLogin(false);
+document.getElementById('loginNew').onclick = () => submitLogin(true);
+document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(false); });
+document.getElementById('switchPilot').onclick = showLogin;
+renderPilots();
+
+// ---------- admin: who has signed up in this browser. Only the Admin button for the pilot human opens it.
+function showAdmin() {
+  document.getElementById('admin').style.display = 'flex';
+  renderAdminTable();
+}
+function hideAdmin() { document.getElementById('admin').style.display = 'none'; }
+function renderAdminTable() {
+  const list = Object.values(pilotsOf()).sort((a, b) => (a.created || '').localeCompare(b.created || ''));
+  const when = iso => iso ? new Date(iso).toLocaleString() : 'never';
+  const table = document.getElementById('adminTable');
+  table.innerHTML = '';
+  const head = document.createElement('tr');
+  for (const h of ['Pilot', 'Signed up', 'Last sign-in', 'Level', 'Coins']) {
+    const th = document.createElement('th');
+    th.textContent = h;
+    head.append(th);
+  }
+  table.append(head);
+  for (const p of list) {
+    const s = readJSON(pilotKey(p.name), {});
+    const row = document.createElement('tr');
+    for (const v of [p.name, when(p.created), when(p.lastSignIn), 1 + Math.floor((s.xp || 0) / 500), s.coins ?? '-']) {
+      const td = document.createElement('td');
+      td.textContent = v;
+      row.append(td);
+    }
+    table.append(row);
+  }
+  document.getElementById('adminCount').textContent = `${list.length} pilot${list.length === 1 ? '' : 's'} signed up in this browser.`;
+}
+// the Admin button in the hangar opens the list for every signed-in pilot
+document.getElementById('openAdmin').onclick = showAdmin;
+document.getElementById('homeFly').onclick = hideHome;
+document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar(); };
+document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
+document.getElementById('homeAdmin').onclick = showAdmin;
+document.getElementById('homeSwitch').onclick = showLogin;
+document.getElementById('adminDone').onclick = hideAdmin;
+
+// ---------- main loop
+let last = performance.now();
+let fps = 60, lastFrameAt = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (lastFrameAt) fps += (1000 / Math.max(1, now - lastFrameAt) - fps) * 0.1;
+  lastFrameAt = now;
+  for (let i = 0; i < 4; i++) update(dt / 4);   // sub-steps keep the physics stable
+  render();
+  ctx = fxCtx;
+  fxCtx.clearRect(0, 0, W, H);
+  drawGunsight();
+  drawHUD(now);
+  drawStatus();
+  drawRain(now);
+  drawMinimap();
+  updateSound();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
