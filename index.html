@@ -1209,7 +1209,7 @@ function update(dt) {
   p.throttle = clamp(p.throttle + throttleIn * 0.5 * dt, 0, 1);
   p.fuel = Math.max(0, p.fuel - (0.004 * p.throttle + 0.0005) * dt);   // full throttle empties the tank in about 4 minutes
   if (p.flip) {
-    const step = 1.3 * dt;   // about five seconds for the whole loop
+    const step = 2.0 * dt;   // about three seconds for the whole loop
     p.pitch += step;
     p.flip.turned += step;
     if (p.flip.turned >= Math.PI * 2 || p.onGround) {
