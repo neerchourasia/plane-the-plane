@@ -133,8 +133,12 @@
     <button id="openAdmin" style="display:none">Admin</button>
     <div id="list"></div>
     <button id="openLivery">Livery maker</button>
+    <h3>Missions</h3>
+    <div id="missions"></div>
     <h3>Contracts</h3>
     <div id="offers"></div>
+    <h3>Best flights</h3>
+    <div id="records"></div>
     <h3>Flight log</h3>
     <div id="log"></div>
     <p class="hint">Land safely to earn coins. Press B or Esc to close.</p>
@@ -157,6 +161,7 @@ F           refuel on the ground (1 coin per 1%)
 R           restart (keeps your fuel)
 N           fly to the waypoint, or the contract (click the minimap to set a waypoint)
 V           back flip: a full loop backwards, +50 coins (needs speed, in the air)
+X           barrel roll: a full roll sideways, +40 coins (needs speed, in the air)
 T           teleport menu</div>
 <script>
 // ---------- canvas setup
@@ -598,6 +603,58 @@ function blockedFrom(eye, pt) {
   return false;
 }
 refreshPads();
+// Rings: gold hoops in the air. Flying through one pays a little; each ring pays once.
+const RINGS = Array.from({ length: 12 }, (_, i) => {
+  const a = i * 0.9 + 0.4, d = 900 + (i % 4) * 700 + hash2(i, 311) * 300;
+  const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  return { c: [x, terrainAt(x, z) + 70 + hash2(i, 312) * 60, z], hdg: hash2(i, 313) * Math.PI, got: false };
+});
+const RING_R = 40;
+// called with where the plane was and where it is now: a ring is passed when the path crosses its hoop inside the radius
+function checkRings(a, b) {
+  if (!pilot) return;
+  for (const r of RINGS) {
+    if (r.got) continue;
+    const n = [Math.cos(r.hdg), 0, -Math.sin(r.hdg)];
+    const sa = dot(sub(a, r.c), n), sb = dot(sub(b, r.c), n);
+    if ((sa < 0) === (sb < 0)) continue;
+    const t = sa / (sa - sb);
+    const d = sub(add(a, mul(sub(b, a), t)), r.c);
+    const u = dot(d, [Math.sin(r.hdg), 0, Math.cos(r.hdg)]);
+    if (u * u + d[1] * d[1] > RING_R * RING_R) continue;
+    r.got = true;
+    save.coins += 25;
+    save.xp += 10;
+    save.ringsFlown = (save.ringsFlown || 0) + 1;
+    writeSave();
+    flashNote('RING +25 COINS');
+  }
+}
+// draws the rings that are still there, from the camera of the current frame
+let lastCam = null;
+function drawRings() {
+  if (!lastCam) return;
+  const { eye, cr, cu, cf } = lastCam;
+  ctx.lineWidth = 3;
+  for (const r of RINGS) {
+    if (r.got || len(sub(r.c, eye)) > 3000) continue;
+    const h = [Math.sin(r.hdg), 0, Math.cos(r.hdg)];
+    ctx.strokeStyle = 'rgba(255,205,70,0.9)';
+    ctx.beginPath();
+    let first = true;
+    for (let i = 0; i <= 28; i++) {
+      const th = i / 28 * Math.PI * 2;
+      const q = add(r.c, add(mul(h, RING_R * Math.cos(th)), [0, RING_R * Math.sin(th), 0]));
+      const d = sub(q, eye);
+      const x = dot(d, cr), y = dot(d, cu), z = dot(d, cf);
+      if (z < NEAR) { first = true; continue; }
+      const sx = W / 2 + x * F / z, sy = H / 2 - y * F / z;
+      if (first) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+      first = false;
+    }
+    ctx.stroke();
+  }
+}
 
 // ---------- world (seeded so every reload is the same)
 let seed = 7;
@@ -725,6 +782,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR' && !e.repeat) resetPlane(plane.fuel);   // restarting keeps the fuel you have
   if (e.code === 'KeyN' && !e.repeat) toggleNav();
   if (e.code === 'KeyV' && !e.repeat) startFlip();
+  if (e.code === 'KeyX' && !e.repeat) startBarrel();
   if (e.code === 'KeyF' && !e.repeat) refuel();
   if (e.code === 'KeyC' && !e.repeat) view = (view + 1) % VIEW_NAMES.length;
   if (e.code === 'KeyG' && !e.repeat) toggleGear();
@@ -755,6 +813,16 @@ function writeSave() {
 }
 function awardLanding(impact) {
   const p = plane, c = save.contract;
+  save.landings = (save.landings || 0) + 1;
+  // a cargo or passenger job: the first landing picks up, the second (at the drop-off) pays
+  if (c && c.kind && c.stage === 0 && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200) {
+    c.stage = 1;
+    c.x = c.dx; c.z = c.dz; c.hdg = c.dhdg;
+    refreshPads();
+    writeSave();
+    flashNote(c.kind === 'cargo' ? 'CARGO LOADED: FLY TO THE DROP-OFF' : 'PASSENGERS ON BOARD: FLY TO THE DESTINATION');
+    return;
+  }
   if (c && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200) {
     save.coins += c.pay;
     save.xp += c.xp;
@@ -773,14 +841,41 @@ function awardLanding(impact) {
   logFlight('Landed +' + reward);
 }
 
+// Missions: one-off goals that pay coins once each. Progress is kept in the save.
+const MISSIONS = [
+  { id: 'climb', text: 'Reach 1000 m', pay: 150, done: p => p.pos[1] >= 1000 },
+  { id: 'far', text: 'Fly 5 km in one flight', pay: 200, done: p => p.flight.dist >= 5000 },
+  { id: 'land3', text: 'Land 3 times', pay: 150, done: () => (save.landings || 0) >= 3 },
+  { id: 'flips3', text: 'Finish 3 back flips', pay: 300, done: () => (save.flips || 0) >= 3 },
+  { id: 'rings5', text: 'Fly through 5 rings', pay: 250, done: () => (save.ringsFlown || 0) >= 5 }
+];
+function checkMissions() {
+  if (!pilot) return;
+  save.missions = save.missions || [];
+  for (const m of MISSIONS) {
+    if (save.missions.includes(m.id) || !m.done(plane)) continue;
+    save.missions.push(m.id);
+    save.coins += m.pay;
+    save.xp += Math.round(m.pay / 2);
+    writeSave();
+    flashNote(`MISSION DONE: ${m.text} +${m.pay} COINS`);
+  }
+}
+
 // Contracts: fly to a strip on the map and land there to get paid and earn XP.
 const STRIP_NAMES = ['Harbor Field', 'Ridge Strip', 'Lakeside', 'Mesa Airfield', 'Cedar Valley', 'North Point', 'Glass Flats', 'Pine Hollow'];
 function makeOffer() {
   const a = Math.random() * Math.PI * 2, d = 1500 + Math.random() * 2500, km = d / 1000;
+  const kind = Math.random() < 0.5 ? 'cargo' : 'passenger';
+  const b = Math.random() * Math.PI * 2, e = 1200 + Math.random() * 1800;   // the drop-off is 1.2 to 3 km from the pick-up
+  const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  const mult = kind === 'passenger' ? 1.3 : 1;
   return {
     name: STRIP_NAMES[Math.floor(Math.random() * STRIP_NAMES.length)],
-    x: Math.cos(a) * d, z: Math.sin(a) * d, dist: d, hdg: Math.random() * Math.PI * 2,
-    pay: Math.round(300 + km * 150), xp: Math.round(100 + km * 60)
+    kind, stage: 0,
+    x, z, dist: d, hdg: Math.random() * Math.PI * 2,
+    dx: x + Math.cos(b) * e, dz: z + Math.sin(b) * e, dhdg: Math.random() * Math.PI * 2,
+    pay: Math.round((300 + km * 150) * mult), xp: Math.round(100 + km * 60)
   };
 }
 // Runway geometry for a contract strip: a 800 m by 40 m strip centred on the offer, aligned to its heading.
@@ -815,7 +910,33 @@ function toggleHangar() {
     renderHangar();
   }
 }
+// the missions and best flights shown in the hangar
+function renderExtras() {
+  const missions = document.getElementById('missions');
+  missions.innerHTML = '';
+  for (const m of MISSIONS) {
+    const done = (save.missions || []).includes(m.id);
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${done ? 'DONE' : 'TODO'}  ${m.text} - ${m.pay} coins`;
+    row.append(label);
+    missions.append(row);
+  }
+  const records = document.getElementById('records');
+  records.innerHTML = '';
+  if (!(save.records || []).length) records.innerHTML = '<p class="hint">Fly to set a record.</p>';
+  (save.records || []).forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${i + 1}. ${r.model} - ${r.km} km in ${r.min} min - ${r.result}`;
+    row.append(label);
+    records.append(row);
+  });
+}
 function renderHangar() {
+  renderExtras();
   document.getElementById('coins').textContent = `Pilot ${pilot || '-'}   Coins: ${save.coins}   Level ${careerLevel()}   XP ${save.xp}   Contracts ${save.completed}`;
   document.getElementById('openAdmin').style.display = isAdmin() ? '' : 'none';
   const list = document.getElementById('list');
@@ -859,14 +980,16 @@ function renderHangar() {
   if (save.contract) {
     const note = document.createElement('p');
     note.className = 'hint';
-    note.textContent = `Active contract: ${save.contract.name}, ${save.contract.pay} coins. Fly there and land to complete it.`;
+    const c = save.contract;
+    const job = c.kind ? ` ${c.kind}, ${c.stage === 0 ? 'pick up here' : 'drop off there'}.` : '';
+    note.textContent = `Active contract: ${c.name}, ${c.pay} coins.${job} Fly there and land to complete it.`;
     offersEl.append(note);
   } else {
     offers.forEach(o => {
       const row = document.createElement('div');
       row.className = 'row';
       const label = document.createElement('span');
-      label.textContent = `${o.name} - ${(o.dist / 1000).toFixed(1)} km - ${o.pay} coins, ${o.xp} XP`;
+      label.textContent = `${o.kind ? o.kind.toUpperCase() + ': ' : ''}${o.name} - ${(o.dist / 1000).toFixed(1)} km - ${o.pay} coins, ${o.xp} XP`;
       const btn = document.createElement('button');
       btn.textContent = 'Accept';
       btn.onclick = () => accept(o);
@@ -896,7 +1019,12 @@ const PRESETS = [
   { name: 'Retro', body: [240, 232, 210], stripe: [200, 70, 30], wing: [200, 190, 170], fin: [200, 70, 30] },
   { name: 'Stealth', body: [60, 64, 70], stripe: [30, 32, 36], wing: [48, 52, 58], fin: [30, 32, 36] },
   { name: 'Racer red', body: [200, 20, 30], stripe: [255, 255, 255], wing: [180, 16, 24], fin: [255, 255, 255] },
-  { name: 'Corporate blue', body: [250, 250, 252], stripe: [20, 60, 140], wing: [225, 228, 236], fin: [20, 60, 140] }
+  { name: 'Corporate blue', body: [250, 250, 252], stripe: [20, 60, 140], wing: [225, 228, 236], fin: [20, 60, 140] },
+  { name: 'Sunset', body: [250, 235, 225], stripe: [230, 110, 40], wing: [210, 150, 120], fin: [150, 40, 80] },
+  { name: 'Forest', body: [235, 240, 230], stripe: [30, 110, 60], wing: [200, 210, 200], fin: [30, 110, 60] },
+  { name: 'Desert', body: [236, 220, 180], stripe: [190, 130, 70], wing: [210, 190, 150], fin: [190, 130, 70] },
+  { name: 'Ocean', body: [240, 248, 252], stripe: [0, 130, 170], wing: [200, 225, 235], fin: [0, 130, 170] },
+  { name: 'Gold', body: [250, 245, 220], stripe: [212, 175, 55], wing: [220, 205, 160], fin: [212, 175, 55] }
 ];
 const LV_PARTS = ['body', 'stripe', 'wing', 'fin'];
 const hexOf = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
@@ -1095,6 +1223,17 @@ function startFlip() {
   p.ap = null;
   flashNote('BACK FLIP');
 }
+// barrel roll: the wings turn a full circle sideways, paying BARREL_PAY coins
+const BARREL_PAY = 40;
+function startBarrel() {
+  const p = plane;
+  if (p.crashed) { flashNote('CRASHED: PRESS R TO RESTART'); return; }
+  if (p.onGround) { flashNote('TAKE OFF FIRST, THEN PRESS X'); return; }
+  if (p.barrel) return;
+  if (p.speed < 40) { flashNote('NEED MORE SPEED FOR A BARREL ROLL'); return; }
+  p.barrel = { turned: 0 };
+  flashNote('BARREL ROLL');
+}
 function toggleNav() {
   const p = plane;
   if (p.ap && p.ap.wp) { p.ap = null; flashNote('NAV OFF'); return; }
@@ -1149,7 +1288,24 @@ const stallSpeed = p => p.model.stall * (1 - 0.15 * flapFrac(p));
 const wrapPi = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 
 // ---------- physics
+// a short burst of noise, used for a crash and a hard landing
+function playBurst(seconds, volume, cutoff) {
+  if (!audio || !soundOn) return;
+  const ac = audio.ac, n = Math.floor(ac.sampleRate * seconds);
+  const buf = ac.createBuffer(1, n, ac.sampleRate), data = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 2;
+  const src = ac.createBufferSource(), filter = ac.createBiquadFilter(), gain = ac.createGain();
+  filter.type = 'lowpass';
+  filter.frequency.value = cutoff;
+  gain.gain.value = volume;
+  src.buffer = buf;
+  src.connect(filter);
+  filter.connect(gain);
+  gain.connect(ac.destination);
+  src.start();
+}
 function crash(msg) {
+  playBurst(1.2, 0.5, 900);
   plane.crashed = true;
   plane.crashMsg = msg;
   logFlight('Crashed: ' + msg);
@@ -1158,10 +1314,9 @@ function crash(msg) {
 // Keeps the last 10 flights in the save: model, distance, airtime and result.
 function logFlight(result) {
   const f = plane.flight;
-  save.log = [
-    { model: plane.model.name, km: (f.dist / 1000).toFixed(1), min: (f.secs / 60).toFixed(1), result },
-    ...save.log
-  ].slice(0, 10);
+  const entry = { model: plane.model.name, km: (f.dist / 1000).toFixed(1), min: (f.secs / 60).toFixed(1), result };
+  save.log = [entry, ...save.log].slice(0, 10);
+  save.records = [...(save.records || []), entry].sort((a, b) => b.km - a.km).slice(0, 5);
   plane.flight = { dist: 0, secs: 0 };
   writeSave();
 }
@@ -1182,6 +1337,7 @@ function update(dt) {
   if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen) return;
   const m = p.model;
   windT += dt;
+  fogEnd = FOG_END - fogLevel() * 2800;
   const ws = 3 + 2 * Math.sin(windT / 40), wd = 0.5 + 0.3 * Math.sin(windT / 90);
   wind = [Math.sin(wd) * ws, Math.cos(wd) * ws];
   simHour = (simHour + dt / 60) % 24;
@@ -1217,6 +1373,7 @@ function update(dt) {
       // a finished loop in the air pays out; touching down first does not
       if (p.flip.turned >= Math.PI * 2 && !p.onGround) {
         save.coins += FLIP_PAY;
+        save.flips = (save.flips || 0) + 1;
         writeSave();
         flashNote(`BACK FLIP +${FLIP_PAY} COINS`);
       }
@@ -1226,9 +1383,26 @@ function update(dt) {
   } else {
     p.pitch = clamp(p.pitch + pitchIn * 1.0 * auth * dt, -1.4, 1.4);
   }
-  p.roll = rollIn
-    ? clamp(p.roll - rollIn * 1.6 * auth * dt, -1.5, 1.5)
-    : p.roll * Math.exp(-1.5 * dt);                 // wings self-center when released
+  if (p.barrel) {
+    const step = 2.4 * dt;   // about 2.6 seconds for the whole roll
+    p.roll -= step;
+    p.barrel.turned += step;
+    if (p.barrel.turned >= Math.PI * 2 || p.onGround) {
+      if (p.barrel.turned >= Math.PI * 2 && !p.onGround) {
+        save.coins += BARREL_PAY;
+        save.xp += 15;
+        save.barrels = (save.barrels || 0) + 1;
+        writeSave();
+        flashNote(`BARREL ROLL +${BARREL_PAY} COINS`);
+      }
+      p.barrel = null;
+      p.roll = wrapPi(p.roll);
+    }
+  } else {
+    p.roll = rollIn
+      ? clamp(p.roll - rollIn * 1.6 * auth * dt, -1.5, 1.5)
+      : p.roll * Math.exp(-1.5 * dt);
+  }                 // wings self-center when released
 
   // coordinated turn from bank, plus rudder
   const turnRate = clamp(-3 * G * Math.sin(p.roll) / Math.max(p.speed, 25), -1.2, 1.2);
@@ -1264,13 +1438,15 @@ function update(dt) {
   v = lerpV(v, mul(ax.f, len(v)), 1 - Math.exp(-1.6 * dt));
 
   p.vel = v;
+  const before = p.pos;
   p.pos = add(p.pos, mul(v, dt));
+  checkRings(before, p.pos);
   p.speed = len(v);
 
   if (!p.onGround) {
     p.pos[0] += wind[0] * dt;
     p.pos[2] += wind[1] * dt;
-    const turb = Math.hypot(wind[0], wind[1]) / 5;
+    const turb = Math.hypot(wind[0], wind[1]) / 5 * (1 + 2 * rainLevel());
     p.roll += (Math.random() - 0.5) * 0.4 * turb * dt;
     p.pitch += (Math.random() - 0.5) * 0.2 * turb * dt;
     p.flight.dist += p.speed * dt;
@@ -1291,6 +1467,7 @@ function update(dt) {
     } else if (Math.abs(p.roll) > 0.9) {
       return crash('Wing strike');
     }
+    if (!wasOnGround && impact > 5) playBurst(0.5, 0.25, 600);
     if (!wasOnGround) awardLanding(impact);
     if (v[1] < 0) v[1] = 0;
     p.onGround = true;
@@ -1307,7 +1484,10 @@ function update(dt) {
 }
 
 // ---------- rendering helpers
-const fogAt = d => clamp((d - FOG_START) / (FOG_END - FOG_START), 0, 1);
+// fog thickens and clears slowly; it closes the view to as little as 800 m
+const fogLevel = () => clamp(Math.sin(windT / 260 + 2) * 1.5 - 0.6, 0, 1);
+let fogEnd = FOG_END;
+const fogAt = d => clamp((d - FOG_START) / (fogEnd - FOG_START), 0, 1);
 const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
 
 // ---------- lighting and small helpers
@@ -1449,6 +1629,7 @@ function render() {
   const cr = norm(cross(camUp, cf));
   const cu = cross(cf, cr);
   const toCam = q => { const d = sub(q, eye); return [dot(d, cr), dot(d, cu), dot(d, cf)]; };
+  lastCam = { eye, cr, cu, cf };
   F = H * 0.9;
 
   // sky, with the horizon placed where the ground meets infinity
@@ -2072,7 +2253,7 @@ function drawStatus() {
     ['ENGINE SOUND', soundOn ? 'ON' : 'OFF', '#8fb3c9'],
     ['AGL', Math.round(agl) + ' ft', '#8fb3c9'],
     ['GROUND SPEED', Math.round(gs) + ' kt', '#8fb3c9'],
-    ['WEATHER', rain > 0.4 ? 'RAIN' : rain > 0.1 ? 'CLOUDY' : 'CLEAR', '#8fb3c9'],
+    ['WEATHER', fogLevel() > 0.5 ? 'FOG' : rain > 0.7 ? 'STORM' : rain > 0.4 ? 'RAIN' : rain > 0.1 ? 'CLOUDY' : 'CLEAR', '#8fb3c9'],
     ['FPS', String(Math.round(fps)), '#8fb3c9'],
     ['VIEW', VIEW_NAMES[view], '#8fb3c9']
   ];
@@ -2445,11 +2626,13 @@ function frame(now) {
   ctx = fxCtx;
   fxCtx.clearRect(0, 0, W, H);
   drawGunsight();
+  drawRings();
   drawHUD(now);
   drawStatus();
   drawRain(now);
   drawMinimap();
   updateSound();
+  checkMissions();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
