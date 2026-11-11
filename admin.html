@@ -104,6 +104,7 @@ $('enter').onclick = enter;
 $('pass').addEventListener('keydown', e => { if (e.key === 'Enter') enter(); });
 $('refresh').onclick = render;
 $('signout').onclick = () => location.reload();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>

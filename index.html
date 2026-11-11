@@ -2637,5 +2637,9 @@ function frame(now) {
 }
 requestAnimationFrame(frame);
 </script>
+<script>
+// Let the game load and run without wifi once it has been visited online.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
 </body>
 </html>
