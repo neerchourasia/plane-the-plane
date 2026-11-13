@@ -77,6 +77,10 @@
 <style>
 #chatBox { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); width: min(420px, 90vw); display: none; z-index: 23; background: rgba(8,20,36,0.92); color: #e8fff5; border: 1px solid #3b5a82; border-radius: 8px; padding: 8px 10px; font: 14px ui-monospace, Menlo, monospace; }
 </style>
+<style>
+#rotateHint { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; background: rgba(4,8,18,0.88); color: #e8fff5; z-index: 40; font: 600 18px ui-monospace, Menlo, monospace; padding: 24px; }
+@media (max-width: 600px) { #tbtns { width: 176px; gap: 6px; } #tbtns button { padding: 10px 4px; font-size: 11px; } #stick { width: 120px; height: 120px; } }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -1889,6 +1893,7 @@ function checkWildlife(pos, dt) {
       birdCooldown = 3;
       playBurst(0.25, 0.35, 500);
       flashNote('BIRD STRIKE!');
+      buzz(80);
       addWear(6);
       return;
     }
@@ -2708,10 +2713,12 @@ function playBurst(seconds, volume, cutoff) {
   gain.connect(ac.destination);
   src.start();
 }
+function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* not supported */ } }
 function crash(msg) {
   playBurst(1.2, 0.5, 900);
   plane.crashed = true;
   plane.crashMsg = msg;
+  buzz([200, 80, 200]);
   cruise = false;
   race = null;
   addWear(25);
@@ -2918,7 +2925,7 @@ function update(dt) {
     } else if (Math.abs(p.roll) > 0.9) {
       return crash('Wing strike');
     }
-    if (!wasOnGround && impact > 5) playBurst(0.5, 0.25, 600);
+    if (!wasOnGround && impact > 5) { playBurst(0.5, 0.25, 600); buzz(120); }
     if (!wasOnGround && impact > 7) startReplay();
     if (!wasOnGround) awardLanding(impact);
     if (v[1] < 0) v[1] = 0;
@@ -4354,6 +4361,7 @@ function frame(now) {
 resumeSession();
 requestAnimationFrame(frame);
 </script>
+<div id="rotateHint"><div>Turn your phone sideways for the best view.<br><br><small>Tap to continue</small></div></div>
 <div id="touch" hidden>
   <div id="stick"><div id="knob"></div></div>
   <div id="tbtns">
@@ -4363,6 +4371,7 @@ requestAnimationFrame(frame);
     <button data-tap="KeyX">BARREL ROLL</button>
     <button data-tap="KeyG">GEAR</button>
     <button data-tap="KeyN">WAYPOINT</button>
+    <button id="tiltBtn">TILT OFF</button>
   </div>
 </div>
 <script>
@@ -4407,6 +4416,56 @@ requestAnimationFrame(frame);
   stick.addEventListener('touchmove', e => { e.preventDefault(); move(e); }, { passive: false });
   stick.addEventListener('touchend', release);
   stick.addEventListener('touchcancel', release);
+})();
+</script>
+<script>
+// More for phones: tilt steering, a buzz on crashes and hard landings, and a hint to turn the phone sideways.
+(function phoneExtras() {
+  const touchy = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  if (!touchy) return;
+  const fire = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code }));
+  const held = { KeyW: false, KeyS: false, KeyA: false, KeyD: false };
+  const setKey = (code, on) => { if (held[code] !== on) { held[code] = on; fire(on ? 'keydown' : 'keyup', code); } };
+  let tilt = false, base = null;
+  const btn = document.getElementById('tiltBtn');
+  const onTilt = e => {
+    if (!tilt || e.beta == null || e.gamma == null) return;
+    if (!base) base = { beta: e.beta, gamma: e.gamma };
+    const angle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+    let roll, pitch;
+    if (Math.abs(angle) === 90) {   // held sideways: turn it like a wheel for roll, tip the top edge for pitch
+      const sg = angle === 90 ? 1 : -1;
+      roll = sg * (e.beta - base.beta); pitch = -sg * (e.gamma - base.gamma);
+    } else { roll = e.gamma - base.gamma; pitch = e.beta - base.beta; }
+    setKey('KeyD', roll > 12); setKey('KeyA', roll < -12);
+    setKey('KeyW', pitch > 14); setKey('KeyS', pitch < -14);
+  };
+  btn.addEventListener('touchstart', async e => {
+    e.preventDefault();
+    if (!tilt) {
+      try {
+        if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+          if ((await DeviceOrientationEvent.requestPermission()) !== 'granted') return;
+        }
+      } catch (err) { return; }
+      tilt = true; base = null;
+      btn.textContent = 'TILT ON';
+      window.addEventListener('deviceorientation', onTilt);
+    } else {
+      tilt = false;
+      btn.textContent = 'TILT OFF';
+      window.removeEventListener('deviceorientation', onTilt);
+      for (const c in held) setKey(c, false);
+    }
+  }, { passive: false });
+  // turn the phone sideways: shown in portrait until tapped
+  const hint = document.getElementById('rotateHint');
+  let dismissed = false;
+  const check = () => { hint.style.display = !dismissed && innerHeight > innerWidth ? 'flex' : 'none'; };
+  hint.addEventListener('touchstart', () => { dismissed = true; check(); });
+  hint.addEventListener('click', () => { dismissed = true; check(); });
+  window.addEventListener('resize', check);
+  check();
 })();
 </script>
 <script>
