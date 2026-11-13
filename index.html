@@ -992,6 +992,71 @@ function drawCruise() {
   ctx.textAlign = 'start';
 }
 
+// ---------- tower radio: each airport has its own wind, a runway end to use, and a landing clearance
+const dayNum = () => Math.floor(Date.now() / 86400000);
+// wind blowing toward (x, z) at airport i: the same for every pilot on the same day, drifting slowly
+function airportWindVec(i, t) {
+  const sp = 2 + 9 * hash2(i, 700 + dayNum()) + 1.5 * Math.sin(t / 40 + i);
+  const to = hash2(i, 800 + dayNum()) * Math.PI * 2 + 0.25 * Math.sin(t / 90 + i);
+  return [Math.sin(to) * sp, Math.cos(to) * sp];
+}
+// the wind at a point is a smooth blend of the winds of the airports around it
+function windAt(pos) {
+  let sx = 0, sz = 0, sw = 0;
+  AIRPORTS.forEach((a, i) => {
+    const w = 1 / ((Math.hypot(pos[0] - a.x, pos[2] - a.z) + 600) ** 2), v = airportWindVec(i, windT);
+    sx += v[0] * w; sz += v[1] * w; sw += w;
+  });
+  const hs = 3 + 2 * Math.sin(windT / 40), hd = 0.5 + 0.3 * Math.sin(windT / 90);   // the home airfield
+  const w = 1 / ((Math.hypot(pos[0], pos[2] - 400) + 600) ** 2);
+  sx += Math.sin(hd) * hs * w; sz += Math.cos(hd) * hs * w; sw += w;
+  return [sx / sw, sz / sw];
+}
+const rwyNum = deg => { const n = Math.round((((deg % 360) + 360) % 360) / 10) % 36; return String(n === 0 ? 36 : n).padStart(2, '0'); };
+// the runway end to use is the one facing into the wind
+function bestEnd(ap, i) {
+  const v = airportWindVec(i, windT), from = Math.atan2(-v[0], -v[1]);
+  const h1 = ap.hdgRad, h2 = h1 + Math.PI;
+  const use = Math.abs(wrapPi(h1 - from)) <= Math.abs(wrapPi(h2 - from)) ? h1 : h2;
+  const cross = Math.abs(v[0] * Math.cos(use) - v[1] * Math.sin(use)) * 1.944;   // crosswind in knots
+  return { hdg: use, num: rwyNum(use * RAD2DEG), wind: v, from, xwind: cross };
+}
+let radioText = '', radioUntil = 0;
+function radio(text) { radioText = text; radioUntil = performance.now() + 7000; }
+let tower = null;   // the airport the plane is near: { i, code, cleared }
+function updateTower() {
+  const p = plane;
+  if (!pilot || homeOpen || p.crashed) return;
+  let best = -1, bd = 1e9;
+  AIRPORTS.forEach((a, i) => { const d = Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z); if (d < bd) { bd = d; best = i; } });
+  if (bd > 5000) { tower = null; return; }
+  const a = AIRPORTS[best], end = bestEnd(a, best);
+  const windTxt = `WIND ${String(Math.round(((end.from * RAD2DEG) % 360 + 360) % 360)).padStart(3, '0')} AT ${Math.round(Math.hypot(end.wind[0], end.wind[1]) * 1.944)} KT, CROSSWIND ${Math.round(end.xwind)}`;
+  if (!tower || tower.i !== best) {
+    tower = { i: best, code: a.code, cleared: false };
+    radio(`${a.code} TOWER: ${windTxt}. USE RUNWAY ${end.num}`);
+  }
+  if (tower.cleared || p.onGround || !p.gear) return;
+  // on the approach to the runway end in use: lined up, in front of the runway, gear down
+  const ux = Math.sin(end.hdg), uz = Math.cos(end.hdg);
+  const along = (p.pos[0] - a.x) * ux + (p.pos[2] - a.z) * uz, across = (p.pos[0] - a.x) * uz - (p.pos[2] - a.z) * ux;
+  if (Math.abs(wrapPi(p.yaw - end.hdg)) < 0.6 && along < -a.len / 2 && along > -4500 && Math.abs(across) < 700) {
+    tower.cleared = true;
+    radio(`${a.code} TOWER: RUNWAY ${end.num} CLEARED TO LAND. ${windTxt}`);
+  }
+}
+function drawRadio() {
+  if (!radioText || performance.now() > radioUntil) return;
+  ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+  const w = ctx.measureText(radioText).width + 24;
+  ctx.fillStyle = 'rgba(8,24,44,0.78)';
+  ctx.fillRect(W / 2 - w / 2, 84, w, 26);
+  ctx.fillStyle = '#9fe6ff';
+  ctx.textAlign = 'center';
+  ctx.fillText(radioText, W / 2, 91);
+  ctx.textAlign = 'start';
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -1060,10 +1125,10 @@ function drawAirportLabels() {
   ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(232,255,245,0.95)';
-  for (const ap of AIRPORTS) {
+  for (const [i, ap] of AIRPORTS.entries()) {
     const s = wildProject([ap.x, terrainAt(ap.x, ap.z) + 25, ap.z]);
     if (!s || s[2] > 6000) continue;
-    ctx.fillText(`${ap.code} ${ap.name}`, s[0], s[1]);
+    ctx.fillText(`${ap.code} ${ap.name}  RWY ${bestEnd(ap, i).num}`, s[0], s[1]);
   }
   ctx.textAlign = 'start';
 }
@@ -1333,7 +1398,11 @@ function awardLanding(impact) {
   }
   const grade = impact < 1 ? 'BUTTER' : impact < 2.5 ? 'GREAT' : impact < 5 ? 'OK' : 'HARD';
   const bonus = grade === 'BUTTER' ? 25 : 0;
-  const reward = Math.round(100 * clamp(1 - impact / 10, 0.2, 1)) + bonus;
+  const onField = tower && Math.hypot(p.pos[0] - AIRPORTS[tower.i].x, p.pos[2] - AIRPORTS[tower.i].z) < AIRPORTS[tower.i].len / 2 + 300;
+  const cleared = onField && tower.cleared;
+  const clearBonus = cleared ? 40 : 0;
+  if (onField && !cleared) radio(`${tower.code} TOWER: LANDED WITHOUT CLEARANCE`);
+  const reward = Math.round(100 * clamp(1 - impact / 10, 0.2, 1)) + bonus + clearBonus;
   save.coins += reward;
   flashNote(`${grade} LANDING +${reward} COINS`);
   save.xp += Math.round(reward / 2);
@@ -1968,8 +2037,7 @@ function update(dt) {
   const m = p.model;
   windT += dt;
   fogEnd = FOG_END - fogLevel() * 2800;
-  const ws = 3 + 2 * Math.sin(windT / 40), wd = 0.5 + 0.3 * Math.sin(windT / 90);
-  wind = [Math.sin(wd) * ws, Math.cos(wd) * ws];
+  wind = windAt(p.pos);
   simHour = realHour();
 
   const auth = Math.min(1, 0.3 + p.speed / 45);   // controls get stronger with airspeed
@@ -3409,6 +3477,7 @@ function frame(now) {
   drawGhost();
   drawCityLights();
   drawAirportLabels();
+  drawRadio();
   drawRunwayLights();
   drawHUD(now);
   drawStatus();
@@ -3418,6 +3487,7 @@ function frame(now) {
   updateSound();
   checkMissions();
   checkDaily();
+  updateTower();
   if (snapRequested) { snapRequested = false; takePhoto(); }
   requestAnimationFrame(frame);
 }
