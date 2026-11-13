@@ -18,11 +18,19 @@ export default async function handler(req, res) {
   };
   const r = await db();
   const now = Date.now();
+  // a chat message, if one was sent: at most one every 2 seconds, 80 characters, public to everyone online
+  const say = typeof b.say === 'string' ? b.say.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 80) : '';
+  if (say && (await r.set('chatlimit:' + name, '1', { NX: true, EX: 2 }))) {
+    await r.lPush('chatlog', JSON.stringify({ t: now, name, callsign: mine.callsign, text: say }));
+    await r.lTrim('chatlog', 0, 39);
+  }
   await r.set('presence:' + name, JSON.stringify(mine), { EX: 15 });
   await r.zAdd('online', { score: now, value: name });
   await r.zRemRangeByScore('online', 0, now - 60000);
   const names = (await r.zRangeByScore('online', now - STALE_MS, '+inf')).filter(n => n !== name).slice(0, 30);
   const rows = names.length ? await r.mGet(names.map(n => 'presence:' + n)) : [];
   const others = rows.filter(Boolean).map(t => JSON.parse(t));
-  res.json({ others });
+  const since = Math.max(Number.isFinite(b.since) ? b.since : 0, now - 60000);
+  const chat = (await r.lRange('chatlog', 0, 19)).map(t => JSON.parse(t)).filter(m => m.t > since).reverse();
+  res.json({ others, chat });
 }

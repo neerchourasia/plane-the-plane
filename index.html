@@ -74,6 +74,9 @@
 #races .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(620px, 94vw); max-height: 92vh; overflow: auto; }
 #races .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #1f2f47; }
 </style>
+<style>
+#chatBox { position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%); width: min(420px, 90vw); display: none; z-index: 23; background: rgba(8,20,36,0.92); color: #e8fff5; border: 1px solid #3b5a82; border-radius: 8px; padding: 8px 10px; font: 14px ui-monospace, Menlo, monospace; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -135,6 +138,7 @@
     <button id="racesClose">Close</button>
   </div>
 </div>
+<input id="chatBox" maxlength="80" placeholder="Say something to pilots online, then press Enter (public)" autocomplete="off">
 <div id="teleport">
   <div class="card">
     <h2>Teleport</h2>
@@ -217,6 +221,7 @@ G           gear up / down (up only in the air)
 P           autopilot: hold heading and altitude
 O           photo: saves a picture of the view
 K           restart the engine after a failure
+Y           chat with the pilots online
 J           cruise: fly a long-haul job's real distance (above 1200 m)
 L           lights
 M           engine sound
@@ -1259,17 +1264,80 @@ function nearField(x, z) {
 // ---------- live pilots: other signed-in pilots show up as moving markers. Positions come from the server every 3 s
 // and are carried forward at the pilot's speed in between.
 let others = [];
+let pendingSay = '', lastChatT = 0, chatLog = [], chatOpen = false;
+function openChat() {
+  const box = document.getElementById('chatBox');
+  chatOpen = true;
+  for (const k in keys) keys[k] = false;
+  box.style.display = 'block';
+  box.value = '';
+  box.focus();
+}
+function closeChat() {
+  chatOpen = false;
+  const box = document.getElementById('chatBox');
+  box.style.display = 'none';
+  box.blur();
+}
+(() => {
+  const box = document.getElementById('chatBox');
+  box.addEventListener('keydown', e => {
+    e.stopPropagation();   // typing must not fly the plane
+    if (e.key === 'Enter') { pendingSay = box.value.trim(); closeChat(); if (pendingSay) syncPresence(); }
+    else if (e.key === 'Escape') closeChat();
+  });
+  box.addEventListener('keyup', e => e.stopPropagation());
+})();
+function drawChat() {
+  if (!pilot) return;
+  const now = performance.now();
+  chatLog = chatLog.filter(m => m.until > now);
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'right';
+  chatLog.forEach((m, i) => {
+    ctx.fillStyle = 'rgba(190,245,255,0.95)';
+    ctx.fillText(`${m.who}: ${m.text}`, W - 16, 56 + i * 15);
+  });
+  ctx.textAlign = 'start';
+}
+// formation flying: stay close to another pilot, heading the same way at a similar speed, for 10 seconds
+let formT = 0, formCooldown = 0;
+function checkFormation(dt) {
+  if (!pilot || plane.onGround || plane.crashed) { formT = 0; return; }
+  formCooldown = Math.max(0, formCooldown - dt);
+  const now = performance.now();
+  const together = others.some(o => {
+    const t = Math.min(15, (now - o.t0) / 1000), x = o.x + Math.sin(o.yaw) * o.v * t, z = o.z + Math.cos(o.yaw) * o.v * t;
+    return Math.hypot(plane.pos[0] - x, plane.pos[2] - z) < 150 && Math.abs(plane.pos[1] - o.y) < 60 && Math.abs(wrapPi(plane.yaw - o.yaw)) < 0.35 && Math.abs(plane.speed - o.v) < 15;
+  });
+  if (!together) { formT = 0; return; }
+  formT += dt;
+  if (formT >= 10 && formCooldown === 0) {
+    save.coins += 25;
+    writeSave();
+    flashNote('FORMATION FLYING +25 COINS');
+    formT = 0;
+    formCooldown = 60;
+  }
+}
 async function syncPresence() {
   const token = storeGet(TOKEN_KEY);
   if (!pilot || !token || document.hidden || homeOpen) return;
   const p = plane;
   try {
+    const say = pendingSay;
+    pendingSay = '';
     const data = await api('/api/presence', {
       method: 'POST', token,
-      body: { x: Math.round(p.pos[0]), y: Math.round(p.pos[1]), z: Math.round(p.pos[2]), yaw: +p.yaw.toFixed(2), v: Math.round(p.speed), plane: p.model.name, callsign: save.callsign || '' }
+      body: { x: Math.round(p.pos[0]), y: Math.round(p.pos[1]), z: Math.round(p.pos[2]), yaw: +p.yaw.toFixed(2), v: Math.round(p.speed), plane: p.model.name, callsign: save.callsign || '', say, since: lastChatT }
     });
     const t0 = performance.now();
     others = (data.others || []).map(o => ({ ...o, t0 }));
+    for (const m of data.chat || []) {
+      lastChatT = Math.max(lastChatT, m.t);
+      chatLog.push({ who: m.callsign || m.name, text: m.text, until: performance.now() + 20000 });
+    }
+    chatLog = chatLog.slice(-6);
   } catch (e) {
     others = [];   // offline, or the server is not reachable: nobody else to show
   }
@@ -1951,6 +2019,7 @@ addEventListener('keydown', e => {
     if (e.code === 'Escape' || e.code === 'KeyT') toggleTeleport();
     return;
   }
+  if (e.code === 'KeyY' && !e.repeat && pilot && !homeOpen && !chatOpen) { e.preventDefault(); return openChat(); }
   if (racesOpen && e.code === 'Escape') return toggleRaces();
   if (schoolOpen && e.code === 'Escape') return toggleSchool();
   if (worldOpen && (e.code === 'Escape' || e.code === 'KeyU')) return toggleWorld();
@@ -4258,6 +4327,8 @@ function frame(now) {
   drawGhost();
   drawRace();
   drawPilots();
+  drawChat();
+  checkFormation(dt);
   drawCityLights();
   drawAirportLabels();
   drawRadio();
