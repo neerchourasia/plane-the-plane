@@ -173,6 +173,8 @@
     <button id="openLivery">Livery maker</button>
     <h3>Missions</h3>
     <div id="missions"></div>
+    <h3>Repairs</h3>
+    <div id="repairs"></div>
     <h3>Achievements</h3>
     <div id="badges"></div>
     <h3>Daily missions</h3>
@@ -1282,6 +1284,41 @@ function drawPilots() {
   ctx.textAlign = 'start';
 }
 
+// ---------- wear and repairs: hard landings, bird strikes and crashes wear a plane; worn engines push less and fail more
+const wearOf = (m = plane.model) => (save.wear || {})[m.name] || 0;
+function addWear(n) {
+  if (!pilot) return;
+  save.wear = save.wear || {};
+  save.wear[plane.model.name] = clamp(wearOf() + n, 0, 100);
+  writeSave();
+}
+const repairCost = m => Math.round(wearOf(m) * 5);
+function renderRepairs() {
+  const box = document.getElementById('repairs');
+  if (!box || !pilot) return;
+  box.innerHTML = '';
+  const worn = save.owned.map(i => MODELS[i]).filter(m => wearOf(m) >= 1);
+  if (!worn.length) { box.innerHTML = '<p class="hint">All your planes are in good shape.</p>'; return; }
+  for (const m of worn) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${m.name}: ${Math.round(wearOf(m))}% worn - repair ${repairCost(m)} coins`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Repair';
+    btn.onclick = () => {
+      const cost = repairCost(m);
+      if (save.coins < cost) { flashNote('NOT ENOUGH COINS FOR THE REPAIR'); return; }
+      save.coins -= cost;
+      save.wear[m.name] = 0;
+      writeSave();
+      renderHangar();
+    };
+    row.append(label, btn);
+    box.append(row);
+  }
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -1357,6 +1394,78 @@ function drawAirportLabels() {
   }
   ctx.textAlign = 'start';
 }
+// ---------- approach guidance: approach lights, glide-slope lights (PAPI) and an ILS indicator
+// The runway end in use (into the wind) is the one that gets lights. The glide slope is 3 degrees to a point 300 m in.
+const GLIDE_DEG = 3;
+function approachPoints(a, i) {
+  const end = bestEnd(a, i), ux = Math.sin(end.hdg), uz = Math.cos(end.hdg), hl = a.len / 2;
+  const T = [a.x - ux * hl, a.z - uz * hl];               // the threshold
+  const TD = [T[0] + ux * 300, T[1] + uz * 300];          // the aiming point
+  return { end, ux, uz, T, TD, gy: terrainAt(TD[0], TD[1]) };
+}
+// where the plane is relative to the nearest runway it is approaching, or null
+function approachInfo(p) {
+  let best = null;
+  AIRPORTS.forEach((a, i) => {
+    const q = approachPoints(a, i);
+    const dx = p.pos[0] - q.TD[0], dz = p.pos[2] - q.TD[1];
+    const along = dx * q.ux + dz * q.uz, across = dx * q.uz - dz * q.ux;   // across > 0: right of the centreline
+    if (along > -150 || along < -9000 || Math.abs(across) > 2500) return;
+    if (!best || -along < -best.along) best = { i, a, ...q, along, across };
+  });
+  if (!best) return null;
+  const run = -best.along;
+  best.angle = Math.atan2(p.pos[1] - best.gy, run) * RAD2DEG;
+  best.loc = Math.atan2(best.across, run) * RAD2DEG;
+  return best;
+}
+function drawApproach() {
+  if (!lastCam || !pilot || plane.crashed) return;
+  const p = plane, night = clamp((0.5 - daylight()) * 2.5, 0, 1), base = 0.55 + 0.45 * night, tms = performance.now();
+  const dot = (x, z, col, r0) => {
+    const s = wildProject([x, terrainAt(x, z) + 1.5, z]);
+    if (!s) return;
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(s[0], s[1], clamp(F * r0 / s[2], 1.2, 5), 0, 6.3); ctx.fill();
+  };
+  AIRPORTS.forEach((a, i) => {
+    if (Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) > 9000) return;
+    const q = approachPoints(a, i);
+    // approach lights: a line of white lights leading in to the threshold, flashing in sequence
+    for (let k = 1; k <= 8; k++) {
+      const on = 0.35 + 0.65 * (((tms / 120 + (8 - k)) % 8) < 1.2 ? 1 : 0);
+      dot(q.T[0] - q.ux * k * 60, q.T[1] - q.uz * k * 60, `rgba(255,255,235,${(base * on).toFixed(2)})`, 3);
+    }
+    // green threshold lights across the runway end
+    for (const side of [-20, -10, 0, 10, 20]) dot(q.T[0] + q.uz * side, q.T[1] - q.ux * side, `rgba(80,255,120,${base.toFixed(2)})`, 2.4);
+    // PAPI: four lights to the left of the aiming point; the more of them are white, the higher the plane is
+    const along = (p.pos[0] - q.TD[0]) * q.ux + (p.pos[2] - q.TD[1]) * q.uz;
+    const ang = along < 0 ? Math.atan2(p.pos[1] - q.gy, -along) * RAD2DEG : 3;
+    [2.5, 2.83, 3.17, 3.5].forEach((thr, k) => {
+      const lat = 38 + k * 9;
+      dot(q.TD[0] - q.uz * lat, q.TD[1] + q.ux * lat, ang > thr ? `rgba(255,255,255,${base.toFixed(2)})` : `rgba(255,60,50,${base.toFixed(2)})`, 4);
+    });
+  });
+}
+// ILS: two needles show where the runway's centreline and glide slope are relative to the plane
+function drawILS() {
+  if (!pilot || plane.onGround || plane.crashed) return;
+  const info = approachInfo(plane);
+  if (!info) return;
+  const S = 90, x0 = W / 2 + 190, y0 = H / 2 + 20;
+  ctx.fillStyle = 'rgba(6,16,30,0.7)'; ctx.fillRect(x0, y0, S, S);
+  ctx.strokeStyle = 'rgba(160,190,220,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, S, S);
+  ctx.beginPath(); ctx.moveTo(x0 + S / 2, y0); ctx.lineTo(x0 + S / 2, y0 + S); ctx.moveTo(x0, y0 + S / 2); ctx.lineTo(x0 + S, y0 + S / 2); ctx.stroke();
+  const lx = clamp(-info.loc / 2.5, -1, 1) * (S / 2 - 6), gy = clamp((info.angle - GLIDE_DEG) / 0.7, -1, 1) * (S / 2 - 6);
+  ctx.strokeStyle = '#ff7cf0'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x0 + S / 2 + lx, y0 + 6); ctx.lineTo(x0 + S / 2 + lx, y0 + S - 6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0 + 6, y0 + S / 2 + gy); ctx.lineTo(x0 + S - 6, y0 + S / 2 + gy); ctx.stroke();
+  ctx.fillStyle = '#9fd8ff'; ctx.font = '11px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+  ctx.fillText(`ILS ${info.a.code} RWY ${info.end.num}`, x0 + S / 2, y0 - 6);
+  ctx.fillText(`${Math.round(-info.along / 100) / 10} KM  GS ${info.angle.toFixed(1)}°`, x0 + S / 2, y0 + S + 12);
+  ctx.textAlign = 'start';
+}
+
 // runway edge lights at night, on the airports near the plane
 function drawRunwayLights() {
   if (!lastCam || !pilot || daylight() >= 0.45) return;
@@ -1426,6 +1535,7 @@ function checkWildlife(pos, dt) {
       birdCooldown = 3;
       playBurst(0.25, 0.35, 500);
       flashNote('BIRD STRIKE!');
+      addWear(6);
       return;
     }
   }
@@ -1604,6 +1714,7 @@ function awardLanding(impact) {
   if (lesson) lesson.landed = impact;
   save.landings = (save.landings || 0) + 1;
   bumpDaily('landings');
+  if (impact > 4) addWear((impact - 4) * 4);
   // remember which airports you have landed at, and whether it was dark
   const fieldHere = AIRPORTS.find(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300);
   if (fieldHere) { save.visited = save.visited || []; if (!save.visited.includes(fieldHere.code)) save.visited.push(fieldHere.code); }
@@ -1728,6 +1839,7 @@ function toggleHangar() {
 function renderExtras() {
   renderDaily();
   renderBadges();
+  renderRepairs();
   const missions = document.getElementById('missions');
   missions.innerHTML = '';
   for (const m of MISSIONS) {
@@ -2242,6 +2354,7 @@ function crash(msg) {
   plane.crashed = true;
   plane.crashMsg = msg;
   cruise = false;
+  addWear(25);
   startReplay();
   logFlight('Crashed: ' + msg);
 }
@@ -2355,7 +2468,7 @@ function update(dt) {
   let v = p.vel;
 
   // thrust along the nose
-  v = add(v, mul(ax.f, p.throttle * (p.fuel > 0 && !p.engineOut ? m.thrust : 0) * dt));
+  v = add(v, mul(ax.f, p.throttle * (p.fuel > 0 && !p.engineOut ? m.thrust * (1 - wearOf(m) * 0.002) : 0) * dt));
 
   // drag opposes motion
   const s0 = len(v);
@@ -2385,7 +2498,7 @@ function update(dt) {
   checkRings(before, p.pos);
   checkWildlife(p.pos, dt);
   // engine failure: now and then the engine quits in the air; K restarts it
-  if (!p.engineOut && !p.onGround && !cruise && Math.random() < dt / 400) {
+  if (!p.engineOut && !p.onGround && !cruise && Math.random() < dt / 400 * (1 + wearOf(m) / 25)) {
     p.engineOut = true;
     flashNote('ENGINE FAILURE! PRESS K TO RESTART');
   }
@@ -3352,6 +3465,7 @@ function drawStatus() {
     ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
     ...(p.leak ? [['FUEL LEAK', 'YES', '#ff6b6b']] : []),
     ...(p.engineOut ? [['ENGINE', 'OUT', '#ff6b6b']] : []),
+    ...(wearOf() >= 5 ? [['WEAR', Math.round(wearOf()) + '%', wearOf() > 50 ? '#ff6b6b' : '#ff9f43']] : []),
     ['FLAPS', p.flaps + ' / 3', '#8fb3c9'],
     ['AUTOPILOT', p.ap ? (p.ap.wp ? 'NAV' : 'ENGAGED') : 'OFF', p.ap ? '#3ddc97' : '#8fb3c9'],
     ['LIGHTS', lightsOn ? 'ON' : 'OFF', '#8fb3c9'],
@@ -3852,6 +3966,8 @@ function frame(now) {
   drawRadio();
   drawLesson();
   drawRunwayLights();
+  drawApproach();
+  drawILS();
   drawHUD(now);
   drawStatus();
   drawCruise();
