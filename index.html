@@ -183,6 +183,7 @@ G           gear up / down (up only in the air)
 P           autopilot: hold heading and altitude
 O           photo: saves a picture of the view
 K           restart the engine after a failure
+J           cruise: fly a long-haul job's real distance (above 1200 m)
 L           lights
 M           engine sound
 C           camera: chase / cockpit / side
@@ -572,6 +573,7 @@ const PAD_BLEND = 220;   // metres over which the ground rises back to its natur
 const ROCK = [118, 110, 100], SNOW = [236, 240, 246];
 const WATER = 12;   // lakes: ground below this height fills with water
 let offers = [];
+let longOffers = [];
 let pads = [];
 
 // smooth random noise in 0..1, built from the same hash as the ground colours
@@ -855,6 +857,66 @@ function drawCityLights() {
   }
 }
 
+// ---------- long-haul flights: real great-circle distances between the real airports
+// The world around the plane stays local, so the real distance is flown in cruise (J): the distance counter runs
+// fast while the plane holds level flight, then the plane arrives on final approach to the destination airport.
+function haversineKm(a, b) {
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function makeLonghaul() {
+  let A, B, km = 0;
+  for (let i = 0; i < 30; i++) {
+    A = AIRPORTS[Math.floor(Math.random() * AIRPORTS.length)];
+    B = AIRPORTS[Math.floor(Math.random() * AIRPORTS.length)];
+    km = Math.round(haversineKm(A, B));
+    if (A !== B && km >= 500) break;
+  }
+  return {
+    name: `${A.code} to ${B.code}, ${km.toLocaleString()} km`, from: A.code, to: B.code,
+    x: B.x, z: B.z, dist: km * 1000, hdg: B.hdgRad, km, flownKm: 0,
+    pay: Math.round(200 + km * 0.35), xp: Math.round(100 + km * 0.1)
+  };
+}
+// the speed-up is chosen so that the whole trip takes about three minutes
+function cruiseX() {
+  const c = save.contract;
+  return c && c.km ? clamp(c.km * 1000 / Math.max(plane.speed, 30) / 180, 8, 2000) : 1;
+}
+function toggleCruise() {
+  const c = save.contract, p = plane;
+  if (cruise) { cruise = false; flashNote('CRUISE OFF'); return; }
+  if (!c || !c.km) { flashNote('ACCEPT A LONG-HAUL JOB IN THE HANGAR FIRST'); return; }
+  if (p.onGround || p.pos[1] < 1200) { flashNote('CLIMB ABOVE 1200 M TO CRUISE'); return; }
+  if (!p.ap) p.ap = { yaw: p.yaw, alt: p.pos[1] };
+  cruise = true;
+  flashNote(`CRUISE: ${Math.round(c.km - (c.flownKm || 0)).toLocaleString()} KM TO ${c.to}`);
+}
+// puts the plane on final approach to the destination, gear down, lined up with the runway
+function arriveLonghaul() {
+  const c = save.contract, p = plane, h = c.hdg;
+  cruise = false;
+  c.flownKm = c.km;
+  p.pos = [c.x - Math.sin(h) * 2500, terrainAt(c.x, c.z) + 200, c.z - Math.cos(h) * 2500];
+  p.yaw = h; p.pitch = 0; p.roll = 0; p.ap = null; p.gear = true;
+  const sp = Math.max(p.speed, p.model.stall * 1.5);
+  p.vel = [Math.sin(h) * sp, 0, Math.cos(h) * sp];
+  p.speed = sp;
+  writeSave();
+  flashNote(`APPROACH: LAND AT ${c.to}`);
+}
+function drawCruise() {
+  const c = save.contract;
+  if (!cruise || !c || !c.km) return;
+  ctx.fillStyle = 'rgba(255,211,77,0.95)';
+  ctx.font = 'bold 16px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`CRUISE x${Math.round(cruiseX())}   ${Math.max(0, Math.round(c.km - c.flownKm)).toLocaleString()} KM TO ${c.to}`, W / 2, 70);
+  ctx.textAlign = 'start';
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -1057,7 +1119,9 @@ let plane;
 let view = 0; // 0 = chase, 1 = cockpit, 2 = side
 const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE'];
 let lightsOn = true, soundOn = true;
+let cruise = false;   // fast-forward through a long-haul job's real distance
 function resetPlane(fuel = 1) {
+  cruise = false;
   plane = {
     model: MODELS[save.selected], lastReward: 0,
     pos: [...START.pos], vel: [0, 0, 0],
@@ -1139,6 +1203,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyG' && !e.repeat) toggleGear();
   if (e.code === 'KeyP' && !e.repeat) toggleAutopilot();
   if (e.code === 'KeyO' && !e.repeat) snapRequested = true;
+  if (e.code === 'KeyJ' && !e.repeat) toggleCruise();
   if (e.code === 'KeyK' && !e.repeat && plane.engineOut) { plane.engineOut = false; flashNote('ENGINE RESTARTED'); }
   if (e.code === 'KeyL' && !e.repeat) lightsOn = !lightsOn;
   if (e.code === 'KeyM' && !e.repeat) soundOn = !soundOn;
@@ -1181,7 +1246,7 @@ function awardLanding(impact) {
     flashNote(c.kind === 'cargo' ? 'CARGO LOADED: FLY TO THE DROP-OFF' : 'PASSENGERS ON BOARD: FLY TO THE DESTINATION');
     return;
   }
-  if (c && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200) {
+  if (c && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200 && (!c.km || (c.flownKm || 0) >= c.km - 20)) {
     save.coins += c.pay;
     save.xp += c.xp;
     save.completed += 1;
@@ -1276,6 +1341,7 @@ function toggleHangar() {
   document.getElementById('hangar').style.display = hangarOpen ? 'flex' : 'none';
   if (hangarOpen) {
     offers = [makeOffer(), makeOffer(), makeOffer()];
+    longOffers = [makeLonghaul(), makeLonghaul()];
     refreshPads();
     renderHangar();
     loadBoard();
@@ -1354,7 +1420,7 @@ function renderHangar() {
     note.className = 'hint';
     const c = save.contract;
     const job = c.kind ? ` ${c.kind}, ${c.stage === 0 ? 'pick up here' : 'drop off there'}.` : '';
-    note.textContent = `Active contract: ${c.name}, ${c.pay} coins.${job} Fly there and land to complete it.`;
+    note.textContent = `Active contract: ${c.name}, ${c.pay} coins.${job} Fly there and land to complete it.${c.km ? ' Climb above 1200 m and press J to cruise the real distance.' : ''}`;
     offersEl.append(note);
   } else {
     offers.forEach(o => {
@@ -1362,6 +1428,17 @@ function renderHangar() {
       row.className = 'row';
       const label = document.createElement('span');
       label.textContent = `${o.kind ? o.kind.toUpperCase() + ': ' : ''}${o.name} - ${(o.dist / 1000).toFixed(1)} km - ${o.pay} coins, ${o.xp} XP`;
+      const btn = document.createElement('button');
+      btn.textContent = 'Accept';
+      btn.onclick = () => accept(o);
+      row.append(label, btn);
+      offersEl.append(row);
+    });
+    longOffers.forEach(o => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const label = document.createElement('span');
+      label.textContent = `LONG-HAUL: ${o.name} - ${o.pay} coins, ${o.xp} XP`;
       const btn = document.createElement('button');
       btn.textContent = 'Accept';
       btn.onclick = () => accept(o);
@@ -1693,6 +1770,19 @@ function drawWorld() {
   g.fillStyle = 'rgba(190,230,255,0.8)'; g.textAlign = 'center';
   for (const o of OCEANS) { const [x, y] = worldProject(o.lon, o.lat, w, h); g.fillText(o.name + ' Ocean', x, y); }
   g.textAlign = 'start';
+  // the active long-haul route, with the plane's progress
+  const job = save.contract;
+  if (job && job.km && job.from) {
+    const A = AIRPORTS.find(a => a.code === job.from), B = AIRPORTS.find(a => a.code === job.to);
+    if (A && B) {
+      const [ax, ay] = worldProject(A.lon, A.lat, w, h), [bx, by] = worldProject(B.lon, B.lat, w, h);
+      g.strokeStyle = '#ffd34d'; g.lineWidth = 2; g.setLineDash([6, 6]);
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      g.setLineDash([]);
+      const f = clamp((job.flownKm || 0) / job.km, 0, 1);
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ax + (bx - ax) * f, ay + (by - ay) * f, 5, 0, 6.3); g.fill();
+    }
+  }
   // airports, with their codes
   g.font = `${Math.max(10, Math.round(w / 70))}px ui-monospace, Menlo, monospace`;
   for (const a of AIRPORTS) {
@@ -1765,6 +1855,7 @@ function crash(msg) {
   playBurst(1.2, 0.5, 900);
   plane.crashed = true;
   plane.crashMsg = msg;
+  cruise = false;
   startReplay();
   logFlight('Crashed: ' + msg);
 }
@@ -1909,7 +2000,7 @@ function update(dt) {
   checkRings(before, p.pos);
   checkWildlife(p.pos, dt);
   // engine failure: now and then the engine quits in the air; K restarts it
-  if (!p.engineOut && !p.onGround && Math.random() < dt / 400) {
+  if (!p.engineOut && !p.onGround && !cruise && Math.random() < dt / 400) {
     p.engineOut = true;
     flashNote('ENGINE FAILURE! PRESS K TO RESTART');
   }
@@ -1931,6 +2022,18 @@ function update(dt) {
     p.pitch += (Math.random() - 0.5) * 0.2 * turb * dt;
     p.flight.dist += p.speed * dt;
     p.flight.secs += dt;
+    // cruise: the real distance runs at a speed-up while the plane keeps flying; the tank is assumed big enough
+    if (cruise) {
+      const c = save.contract;
+      if (!c || !c.km || p.engineOut) cruise = false;
+      else {
+        c.flownKm = (c.flownKm || 0) + p.speed * dt * cruiseX() / 1000;
+        p.fuel = Math.min(1, p.fuel + (0.0011 * p.throttle + 0.00015) * dt);
+        if (Math.abs(p.pos[0]) > 5200) p.pos[0] *= -0.9;
+        if (Math.abs(p.pos[2]) > 5200) p.pos[2] *= -0.9;
+        if (c.flownKm >= c.km - 20) arriveLonghaul();
+      }
+    }
     // record the path once a second, for the ghost of the best flight
     p.path = p.path || []; p.pathT = (p.pathT || 0) + dt;
     if (p.pathT >= 1 && p.path.length < 900) { p.pathT = 0; p.path.push(p.pos.map(v => Math.round(v))); }
@@ -2536,7 +2639,8 @@ function drawHUD(now) {
   if (save.contract) {
     const c = save.contract;
     ctx.fillStyle = '#ffd23f';
-    ctx.fillText('TO ' + c.name + ' ' + (Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) / 1000).toFixed(1) + ' km', 28, 84);
+    ctx.fillText(c.km ? 'TO ' + c.to + ' ' + Math.max(0, Math.round(c.km - (c.flownKm || 0))).toLocaleString() + ' km'
+      : 'TO ' + c.name + ' ' + (Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) / 1000).toFixed(1) + ' km', 28, 84);
   }
 
   // throttle lever bar along the bottom
@@ -3233,6 +3337,7 @@ function frame(now) {
   drawRunwayLights();
   drawHUD(now);
   drawStatus();
+  drawCruise();
   drawRain(now);
   drawMinimap();
   updateSound();
