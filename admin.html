@@ -29,11 +29,11 @@
 <body>
 <main>
   <h1>Plane the Plane · Admin</h1>
-  <p class="sub">Who has signed up to play in this browser.</p>
+  <p class="sub">Every pilot who has signed up, from any browser.</p>
 
   <section id="gate" class="card">
     <p class="hint">Sign in as the admin pilot, human.</p>
-    <label>Pilot name <input id="name" value="human" autocomplete="username"></label>
+    <label>Pilot name <input id="name" value="human" autocomplete="username" readonly></label>
     <label>Password <input id="pass" type="password" autocomplete="current-password"></label>
     <button id="enter">Sign in</button>
     <p class="err" id="err"></p>
@@ -42,6 +42,7 @@
   <section id="panel" class="hidden">
     <div class="card">
       <p class="hint" id="count"></p>
+      <p class="err" id="loadErr"></p>
       <div class="wrap">
         <table>
           <thead><tr><th>Pilot</th><th>Signed up</th><th>Last sign-in</th><th>Level</th><th>Coins</th></tr></thead>
@@ -55,55 +56,63 @@
   </section>
 </main>
 <script>
-// The game keeps pilots and saves in this browser's storage, under the same site, so this page reads the same data.
-const PILOTS_KEY = 'plane-the-plane-pilots';
-const SAVE_PREFIX = 'plane-the-plane-save:';
-const ADMIN_PILOT = 'human';
+// The admin list comes from the server. Only the admin pilot's sign-in works, and the token lasts for this tab.
+const TOKEN_KEY = 'plane-the-plane-admin-token';
 const $ = id => document.getElementById(id);
-const readJSON = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } };
-const pilotsOf = () => readJSON(PILOTS_KEY, {});
 const when = iso => iso ? new Date(iso).toLocaleString() : 'never';
-// the password is checked against the same SHA-256 hash the game stores
-const hashPassword = async (salt, password) => {
-  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + password)));
-  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
-};
+
+async function api(path, { method = 'GET', body, token = '' } = {}) {
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || 'Something went wrong.'); e.status = res.status; throw e; }
+  return data;
+}
 
 async function enter() {
   const err = $('err');
   err.textContent = '';
-  if ($('name').value.trim().toLowerCase() !== ADMIN_PILOT) { err.textContent = 'Only the admin pilot can open this page.'; return; }
-  if (!window.crypto || !crypto.subtle) { err.textContent = 'Open this page over https or on localhost.'; return; }
-  const p = pilotsOf()[ADMIN_PILOT];
-  if (!p) { err.textContent = 'No admin pilot yet. Create human in the game first.'; return; }
-  if ((await hashPassword(p.salt, $('pass').value)) !== p.hash) { err.textContent = 'Wrong password.'; return; }
-  $('pass').value = '';
-  $('gate').classList.add('hidden');
-  $('panel').classList.remove('hidden');
-  render();
+  try {
+    const data = await api('/api/login', { method: 'POST', body: { name: 'human', password: $('pass').value } });
+    if (data.name !== 'human') { err.textContent = 'Only the admin pilot can open this page.'; return; }
+    try { sessionStorage.setItem(TOKEN_KEY, data.token); } catch (e) { /* storage blocked */ }
+    $('pass').value = '';
+    $('gate').classList.add('hidden');
+    $('panel').classList.remove('hidden');
+    render();
+  } catch (e) {
+    err.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
+  }
 }
 
-function render() {
-  const list = Object.values(pilotsOf()).sort((a, b) => (a.created || '').localeCompare(b.created || ''));
-  const rows = $('rows');
-  rows.innerHTML = '';
-  for (const p of list) {
-    const s = readJSON(SAVE_PREFIX + p.name.toLowerCase(), {});
-    const tr = document.createElement('tr');
-    for (const v of [p.name, when(p.created), when(p.lastSignIn), 1 + Math.floor((s.xp || 0) / 500), s.coins ?? '-']) {
-      const td = document.createElement('td');
-      td.textContent = v;
-      tr.append(td);
+async function render() {
+  const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
+  $('loadErr').textContent = '';
+  try {
+    const { pilots } = await api('/api/admin', { token });
+    const rows = $('rows');
+    rows.innerHTML = '';
+    for (const p of pilots) {
+      const tr = document.createElement('tr');
+      for (const v of [p.name, when(p.created), when(p.lastSignIn), 1 + Math.floor((p.xp || 0) / 500), p.coins ?? '-']) {
+        const td = document.createElement('td');
+        td.textContent = v;
+        tr.append(td);
+      }
+      rows.append(tr);
     }
-    rows.append(tr);
+    $('count').textContent = `${pilots.length} pilot${pilots.length === 1 ? '' : 's'} signed up.`;
+  } catch (e) {
+    $('loadErr').textContent = e.status === 403 || e.status === 401 ? 'Sign in again as human.' : (e.message || "Couldn't load the list.");
   }
-  $('count').textContent = `${list.length} pilot${list.length === 1 ? '' : 's'} signed up in this browser.`;
 }
 
 $('enter').onclick = enter;
 $('pass').addEventListener('keydown', e => { if (e.key === 'Enter') enter(); });
 $('refresh').onclick = render;
-$('signout').onclick = () => location.reload();
+$('signout').onclick = () => { try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* storage blocked */ } location.reload(); };
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>

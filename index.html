@@ -51,6 +51,13 @@
   #livery .row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid #22324d}
   #livery .hint{color:#8fb3c9;font-size:12px}
 </style>
+<style>
+#touch[hidden] { display: none; }
+#stick { position: fixed; left: 16px; bottom: 16px; width: 150px; height: 150px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.35); touch-action: none; z-index: 15; }
+#knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,0.45); pointer-events: none; }
+#tbtns { position: fixed; right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 210px; z-index: 15; }
+#tbtns button { margin: 0; padding: 14px 6px; background: rgba(10,20,35,0.65); color: #e8fff5; border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; font: 600 13px ui-monospace, Menlo, Consolas, monospace; touch-action: none; user-select: none; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -112,7 +119,7 @@
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
-    <p class="hint">Sign in as a pilot, or create one. Each pilot keeps its own coins, planes and liveries on this browser.</p>
+    <p class="hint">Sign in as a pilot, or create one. Your pilot and save are kept on the server, so you can sign in on any device.</p>
     <div class="fields">
       <label>Pilot name <input id="loginName" maxlength="16" autocomplete="username"></label>
       <label>Password <input id="loginPass" type="password" maxlength="32" autocomplete="current-password"></label>
@@ -153,6 +160,7 @@ Space       brake (on ground)
 G           gear up / down (up only in the air)
 [ / ]       flaps up / down
 P           autopilot: hold heading and altitude
+O           photo: saves a picture of the view
 L           lights
 M           engine sound
 C           camera: chase / cockpit / side
@@ -656,6 +664,122 @@ function drawRings() {
   }
 }
 
+// ---------- wildlife and traffic
+// Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
+// Airliners fly wide loops high above; flying into one is a mid-air collision.
+const FLOCKS = Array.from({ length: 6 }, (_, i) => ({
+  cx: (hash2(i, 401) - 0.5) * 3000, cz: (hash2(i, 402) - 0.5) * 3000,
+  r: 150 + hash2(i, 403) * 250, y: 90 + hash2(i, 404) * 160,
+  w: (0.05 + hash2(i, 405) * 0.05) * (hash2(i, 406) > 0.5 ? 1 : -1), ph: hash2(i, 407) * 6.28,
+  n: 5 + Math.floor(hash2(i, 408) * 5)
+}));
+const AIRLINERS = Array.from({ length: 3 }, (_, i) => ({
+  cx: (hash2(i, 411) - 0.5) * 4000, cz: (hash2(i, 412) - 0.5) * 4000,
+  r: 900 + hash2(i, 413) * 600, y: 380 + hash2(i, 414) * 200,
+  w: 0.025 * (i % 2 ? 1 : -1), ph: hash2(i, 415) * 6.28, col: ['#f2f5f8', '#f6e3b3', '#d9e8f5'][i]
+}));
+// position and direction of travel on a circle, for a flock or an airliner
+function onCircle(f, t) {
+  const a = f.ph + f.w * t, sg = Math.sign(f.w);
+  return {
+    cx: f.cx + Math.cos(a) * f.r, cz: f.cz + Math.sin(a) * f.r,
+    fwd: [-Math.sin(a) * sg, 0, Math.cos(a) * sg]
+  };
+}
+// each bird of a flock, in a loose V formation that turns with the flock
+function flockBirds(f, t) {
+  const c = onCircle(f, t), right = [c.fwd[2], 0, -c.fwd[0]], out = [];
+  for (let k = 0; k < f.n; k++) {
+    const ox = ((k % 2) * 2 - 1) * (k + 1) * 5, oz = -k * 4;
+    const j = k * 2.1 + t * 0.7;
+    const p = [c.cx + right[0] * ox + c.fwd[0] * oz, f.y + Math.sin(j * 1.7) * 3, c.cz + right[2] * ox + c.fwd[2] * oz];
+    out.push({ pos: [p[0] + Math.sin(j) * 2, p[1], p[2] + Math.cos(j * 1.3) * 2], fwd: c.fwd });
+  }
+  return out;
+}
+function airlinerAt(a, t) {
+  const c = onCircle(a, t);
+  return { pos: [c.cx, a.y, c.cz], fwd: c.fwd };
+}
+// projects a world point to the screen with the current frame's camera; null if it is behind the camera
+function wildProject(q) {
+  const { eye, cr, cu, cf } = lastCam;
+  const d = sub(q, eye), z = dot(d, cf);
+  if (z < NEAR) return null;
+  return [W / 2 + dot(d, cr) * F / z, H / 2 - dot(d, cu) * F / z, z];
+}
+// the ghost: where the best flight was at the same time since take-off
+function drawGhost() {
+  const g = save.ghost;
+  if (!g || !g.path || !lastCam || !pilot || plane.crashed) return;
+  const i = Math.floor(plane.flight.secs);
+  if (i < 0 || i >= g.path.length) return;
+  const q = g.path[i];
+  const s = wildProject([q[0], q[1], q[2]]);
+  if (!s) return;
+  const r = clamp(F * 4 / s[2], 3, 10);
+  ctx.fillStyle = 'rgba(120,220,255,0.5)';
+  ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, 6.3); ctx.fill();
+  ctx.strokeStyle = 'rgba(200,240,255,0.9)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(s[0], s[1], r + 3, 0, 6.3); ctx.stroke();
+  ctx.fillStyle = 'rgba(220,245,255,0.95)';
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.fillText('BEST ' + g.km + ' km', s[0] + r + 6, s[1] + 4);
+}
+function drawWildlife() {
+  if (!lastCam || !pilot) return;
+  const t = windT;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = 'rgba(25,25,35,0.85)';
+  for (const f of FLOCKS) for (const b of flockBirds(f, t)) {
+    const s = wildProject(b.pos);
+    if (!s || s[2] > 1500) continue;
+    const w = clamp(F * 1.6 / s[2], 1.5, 9), h = w * 0.5;
+    ctx.lineWidth = clamp(F * 0.25 / s[2], 1, 2);
+    ctx.beginPath();
+    ctx.moveTo(s[0] - w, s[1] - h);
+    ctx.lineTo(s[0], s[1]);
+    ctx.lineTo(s[0] + w, s[1] - h);
+    ctx.stroke();
+  }
+  for (const a of AIRLINERS) {
+    const { pos, fwd } = airlinerAt(a, t);
+    const s = wildProject(pos);
+    if (!s || s[2] > 4000) continue;
+    const right = [fwd[2], 0, -fwd[0]];
+    const nose = wildProject(add(pos, mul(fwd, 25))), tail = wildProject(sub(pos, mul(fwd, 25)));
+    const wl = wildProject(add(pos, mul(right, -22))), wr = wildProject(add(pos, mul(right, 22)));
+    if (!nose || !tail || !wl || !wr) continue;
+    ctx.strokeStyle = a.col;
+    ctx.lineWidth = clamp(F * 5 / s[2], 1.5, 6);
+    ctx.beginPath(); ctx.moveTo(tail[0], tail[1]); ctx.lineTo(nose[0], nose[1]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(wl[0], wl[1]); ctx.lineTo(wr[0], wr[1]); ctx.stroke();
+    // a blinking light on the wingtip
+    if (Math.floor(performance.now() / 500) % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,60,60,0.9)';
+      ctx.beginPath(); ctx.arc(wr[0], wr[1], 2.5, 0, 6.3); ctx.fill();
+    }
+  }
+}
+let birdCooldown = 0;
+// called each step with the plane's position: airliners crash you, a bird only rattles you
+function checkWildlife(pos, dt) {
+  if (!pilot || plane.crashed || plane.onGround) return;
+  birdCooldown = Math.max(0, birdCooldown - dt);
+  for (const a of AIRLINERS) {
+    if (len(sub(pos, airlinerAt(a, windT).pos)) < 40) { crash('mid-air collision with an airliner'); return; }
+  }
+  if (birdCooldown > 0) return;
+  for (const f of FLOCKS) for (const b of flockBirds(f, windT)) {
+    if (len(sub(pos, b.pos)) < 9) {
+      birdCooldown = 3;
+      playBurst(0.25, 0.35, 500);
+      flashNote('BIRD STRIKE!');
+      return;
+    }
+  }
+}
+
 // ---------- world (seeded so every reload is the same)
 let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -787,6 +911,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyC' && !e.repeat) view = (view + 1) % VIEW_NAMES.length;
   if (e.code === 'KeyG' && !e.repeat) toggleGear();
   if (e.code === 'KeyP' && !e.repeat) toggleAutopilot();
+  if (e.code === 'KeyO' && !e.repeat) snapRequested = true;
   if (e.code === 'KeyL' && !e.repeat) lightsOn = !lightsOn;
   if (e.code === 'KeyM' && !e.repeat) soundOn = !soundOn;
   if (e.code === 'BracketRight' && !e.repeat) plane.flaps = Math.min(3, plane.flaps + 1);
@@ -810,6 +935,10 @@ const down = k => !!keys[k];
 function writeSave() {
   if (!pilot) return;
   try { localStorage.setItem(pilotKey(pilot), JSON.stringify(save)); } catch (e) { /* storage blocked */ }
+  saveDirty = true;
+  storeSet(PENDING_KEY, pilot);
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(pushSave, 1500);
 }
 function awardLanding(impact) {
   const p = plane, c = save.contract;
@@ -833,8 +962,11 @@ function awardLanding(impact) {
     logFlight('Contract ' + c.name + ' +' + c.pay);
     return;
   }
-  const reward = Math.round(100 * clamp(1 - impact / 10, 0.2, 1));
+  const grade = impact < 1 ? 'BUTTER' : impact < 2.5 ? 'GREAT' : impact < 5 ? 'OK' : 'HARD';
+  const bonus = grade === 'BUTTER' ? 25 : 0;
+  const reward = Math.round(100 * clamp(1 - impact / 10, 0.2, 1)) + bonus;
   save.coins += reward;
+  flashNote(`${grade} LANDING +${reward} COINS`);
   save.xp += Math.round(reward / 2);
   p.lastReward = reward;
   writeSave();
@@ -847,7 +979,13 @@ const MISSIONS = [
   { id: 'far', text: 'Fly 5 km in one flight', pay: 200, done: p => p.flight.dist >= 5000 },
   { id: 'land3', text: 'Land 3 times', pay: 150, done: () => (save.landings || 0) >= 3 },
   { id: 'flips3', text: 'Finish 3 back flips', pay: 300, done: () => (save.flips || 0) >= 3 },
-  { id: 'rings5', text: 'Fly through 5 rings', pay: 250, done: () => (save.ringsFlown || 0) >= 5 }
+  { id: 'rings5', text: 'Fly through 5 rings', pay: 250, done: () => (save.ringsFlown || 0) >= 5 },
+  { id: 'alt3k', text: 'Climb to 3000 m', pay: 200, done: p => p.pos[1] >= 3000 },
+  { id: 'speed70', text: 'Reach 70 m/s', pay: 200, done: p => p.speed >= 70 },
+  { id: 'air10', text: 'Stay up 10 minutes in one flight', pay: 250, done: p => p.flight.secs >= 600 },
+  { id: 'barrel3', text: 'Do 3 barrel rolls', pay: 200, done: () => (save.barrels || 0) >= 3 },
+  { id: 'contracts3', text: 'Finish 3 contracts', pay: 300, done: () => (save.completed || 0) >= 3 },
+  { id: 'rings12', text: 'Fly through all 12 rings', pay: 300, done: () => (save.ringsFlown || 0) >= 12 }
 ];
 function checkMissions() {
   if (!pilot) return;
@@ -859,6 +997,7 @@ function checkMissions() {
     save.xp += Math.round(m.pay / 2);
     writeSave();
     flashNote(`MISSION DONE: ${m.text} +${m.pay} COINS`);
+    playTones([[523, 0, 0.15], [659, 0.15, 0.15], [784, 0.3, 0.45]]);
   }
 }
 
@@ -1315,6 +1454,11 @@ function crash(msg) {
 function logFlight(result) {
   const f = plane.flight;
   const entry = { model: plane.model.name, km: (f.dist / 1000).toFixed(1), min: (f.secs / 60).toFixed(1), result };
+  const topBefore = save.records && save.records[0] ? parseFloat(save.records[0].km) : 0;
+  if (parseFloat(entry.km) > topBefore && plane.path && plane.path.length > 1) {
+    save.ghost = { km: entry.km, path: plane.path };
+  }
+  plane.path = []; plane.pathT = 0;
   save.log = [entry, ...save.log].slice(0, 10);
   save.records = [...(save.records || []), entry].sort((a, b) => b.km - a.km).slice(0, 5);
   plane.flight = { dist: 0, secs: 0 };
@@ -1441,6 +1585,7 @@ function update(dt) {
   const before = p.pos;
   p.pos = add(p.pos, mul(v, dt));
   checkRings(before, p.pos);
+  checkWildlife(p.pos, dt);
   p.speed = len(v);
 
   if (!p.onGround) {
@@ -1451,6 +1596,9 @@ function update(dt) {
     p.pitch += (Math.random() - 0.5) * 0.2 * turb * dt;
     p.flight.dist += p.speed * dt;
     p.flight.secs += dt;
+    // record the path once a second, for the ghost of the best flight
+    p.path = p.path || []; p.pathT = (p.pathT || 0) + dt;
+    if (p.pathT >= 1 && p.path.length < 900) { p.pathT = 0; p.path.push(p.pos.map(v => Math.round(v))); }
   }
 
   // ground contact: the ground is the terrain under the plane
@@ -2293,7 +2441,22 @@ function startAudio() {
     filter.connect(gain);
     gain.connect(ac.destination);
     osc.start();
-    audio = { ac, osc, gain };
+    // wind: looped noise through a band-pass filter, louder with airspeed
+    const wbuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), wd = wbuf.getChannelData(0);
+    for (let i = 0; i < wd.length; i++) wd[i] = Math.random() * 2 - 1;
+    const wsrc = ac.createBufferSource(), wfilt = ac.createBiquadFilter(), wgain = ac.createGain();
+    wsrc.buffer = wbuf; wsrc.loop = true;
+    wfilt.type = 'bandpass'; wfilt.frequency.value = 700; wfilt.Q.value = 0.6;
+    wgain.gain.value = 0;
+    wsrc.connect(wfilt); wfilt.connect(wgain); wgain.connect(ac.destination);
+    wsrc.start();
+    // stall warning: a short beep pulsed on and off
+    const sosc = ac.createOscillator(), sgain = ac.createGain();
+    sosc.type = 'square'; sosc.frequency.value = 880;
+    sgain.gain.value = 0;
+    sosc.connect(sgain); sgain.connect(ac.destination);
+    sosc.start();
+    audio = { ac, osc, gain, wgain, sgain };
   } catch (e) { /* no audio support: the sim runs silently */ }
 }
 function updateSound() {
@@ -2302,6 +2465,29 @@ function updateSound() {
   const on = soundOn && !plane.crashed && !hangarOpen;
   audio.osc.frequency.setTargetAtTime(55 + 110 * plane.throttle, t, 0.1);
   audio.gain.gain.setTargetAtTime(on ? 0.02 + 0.08 * plane.throttle : 0, t, 0.1);
+  // wind rises with airspeed and in rain
+  const airborne = on && !plane.onGround;
+  const windLevel = airborne ? clamp(plane.speed / 120, 0, 1) * (0.6 + 0.4 * rainLevel()) : 0;
+  audio.wgain.gain.setTargetAtTime(0.06 * windLevel, t, 0.2);
+  // stall warning: two beeps a second while the wing is close to stalling
+  const stalling = airborne && plane.speed < stallSpeed(plane) * 1.15;
+  const beepOn = stalling && Math.floor(performance.now() / 250) % 2 === 0;
+  audio.sgain.gain.setTargetAtTime(beepOn ? 0.05 : 0, t, 0.01);
+}
+
+// Short musical phrase, used when a mission is done.
+function playTones(notes) {
+  if (!audio || !soundOn) return;
+  const ac = audio.ac, now = ac.currentTime;
+  for (const [freq, at, dur] of notes) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'triangle'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, now + at);
+    g.gain.linearRampToValueAtTime(0.12, now + at + 0.02);
+    g.gain.linearRampToValueAtTime(0, now + at + dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(now + at); o.stop(now + at + dur + 0.05);
+  }
 }
 
 // Rain comes and goes slowly: 0 is clear, 1 is heavy rain.
@@ -2509,13 +2695,63 @@ function drawPlaneGL({ eye, cr, cu, cf }) {
 }
 
 // ---------- pilots: sign in, create a pilot, switch pilot
-const pilotsOf = () => readJSON(PILOTS_KEY, {});
-// the password is stored as a SHA-256 hash with a random salt, never as typed
-const hashPassword = async (salt, password) => {
-  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + password)));
-  return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
-};
-const randomHex = () => [...crypto.getRandomValues(new Uint8Array(12))].map(b => b.toString(16).padStart(2, '0')).join('');
+// ---------- accounts: pilots and saves live on the server, so any device can sign in.
+// This browser keeps a copy of the save, so the game still runs when there is no wifi.
+const TOKEN_KEY = 'plane-the-plane-token', NAME_KEY = 'plane-the-plane-last-pilot';
+const NAMES_KEY = 'plane-the-plane-names', PENDING_KEY = 'plane-the-plane-save-pending';
+const storeGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+const storeSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } };
+const storeDel = k => { try { localStorage.removeItem(k); } catch (e) { /* storage blocked */ } };
+// one request to the server; errors carry the server's message and status, or no status when there is no connection
+async function api(path, { method = 'GET', body, token = '', keepalive = false } = {}) {
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const res = await fetch(path, { method, headers, keepalive, body: body !== undefined ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error || 'Something went wrong.'); e.status = res.status; throw e; }
+  return data;
+}
+function rememberName(name) {
+  const names = readJSON(NAMES_KEY, []);
+  if (!names.includes(name)) storeSet(NAMES_KEY, JSON.stringify([...names, name]));
+  storeSet(NAME_KEY, name);
+}
+// sends the save once changes settle; while offline the local copy keeps the progress and it is sent later
+let saveTimer = null, saveDirty = false;
+async function pushSave() {
+  clearTimeout(saveTimer);
+  const token = storeGet(TOKEN_KEY), who = pilot;
+  if (!who || !token || !saveDirty) return;
+  const snapshot = JSON.stringify(save);
+  try {
+    await api('/api/save', { method: 'PUT', body: JSON.parse(snapshot), token, keepalive: true });
+    if (JSON.stringify(save) === snapshot) { saveDirty = false; storeDel(PENDING_KEY); }
+  } catch (e) {
+    if (e.status !== 401) saveTimer = setTimeout(pushSave, 15000);   // no connection: try again later
+  }
+}
+window.addEventListener('online', pushSave);
+window.addEventListener('pagehide', () => { if (saveDirty) pushSave(); });
+// on load: sign straight back in with the saved token, using the server's save or a newer local one from offline play
+async function resumeSession() {
+  const name = storeGet(NAME_KEY), token = storeGet(TOKEN_KEY);
+  if (!name || !token) return;
+  const local = readJSON(pilotKey(name), null);
+  if (storeGet(PENDING_KEY) === name && local) {
+    signIn(name, local);
+    saveDirty = true;
+    pushSave();
+    return;
+  }
+  try {
+    const data = await api('/api/save', { token });
+    signIn(name, data.save);
+  } catch (e) {
+    if (e.status === 401) { storeDel(TOKEN_KEY); return; }   // the sign-in ran out: show the sign-in screen
+    if (local) signIn(name, local);                           // no connection: play on the copy in this browser
+  }
+}
 function showLogin() {
   pilot = null;
   hangarOpen = liveryOpen = teleportOpen = homeOpen = false;
@@ -2525,14 +2761,16 @@ function showLogin() {
   document.getElementById('login').style.display = 'flex';
   renderPilots();
 }
+// sends any unsaved progress, then forgets this browser's sign-in
+async function signOut() {
+  if (saveDirty) await pushSave();
+  storeDel(TOKEN_KEY);
+  showLogin();
+}
 function signIn(name, saved) {
   pilot = name;
-  const pilots = pilotsOf();
-  if (pilots[name.toLowerCase()]) {
-    pilots[name.toLowerCase()].lastSignIn = new Date().toISOString();
-    try { localStorage.setItem(PILOTS_KEY, JSON.stringify(pilots)); } catch (e) { /* storage blocked */ }
-  }
-  save = { ...JSON.parse(JSON.stringify(DEFAULT_SAVE)), ...(saved || readJSON(pilotKey(name), {})) };
+  save = { ...JSON.parse(JSON.stringify(DEFAULT_SAVE)), ...(saved || {}) };
+  storeSet(pilotKey(name), JSON.stringify(save));
   document.getElementById('login').style.display = 'none';
   document.getElementById('loginPass').value = '';
   resetPlane();
@@ -2557,16 +2795,16 @@ function hideHome() {
 function renderPilots() {
   const box = document.getElementById('pilots');
   box.innerHTML = '';
-  const list = Object.values(pilotsOf());
-  if (!list.length) return;
+  const names = readJSON(NAMES_KEY, []);
+  if (!names.length) return;
   const title = document.createElement('p');
   title.className = 'hint';
-  title.textContent = 'Existing pilots:';
+  title.textContent = 'Pilots used on this browser:';
   box.append(title);
-  for (const p of list) {
+  for (const n of names) {
     const b = document.createElement('button');
-    b.textContent = p.name;
-    b.onclick = () => { document.getElementById('loginName').value = p.name; document.getElementById('loginPass').focus(); };
+    b.textContent = n;
+    b.onclick = () => { document.getElementById('loginName').value = n; document.getElementById('loginPass').focus(); };
     box.append(b);
   }
 }
@@ -2576,39 +2814,27 @@ async function submitLogin(create) {
   const pass = document.getElementById('loginPass').value;
   msg.textContent = '';
   if (!name || name.length > 16) { msg.textContent = 'Pick a pilot name of up to 16 characters.'; return; }
-  if (!window.crypto || !crypto.subtle) { msg.textContent = 'Sign-in needs this page opened on localhost or over https.'; return; }
-  const pilots = pilotsOf();
-  const key = name.toLowerCase();
-  if (create) {
-    if (pilots[key]) { msg.textContent = 'That pilot already exists. Sign in instead.'; return; }
-    if (pass.length < 4) { msg.textContent = 'Use a password of at least 4 characters.'; return; }
-    const salt = randomHex();
-    const hash = await hashPassword(salt, pass);
-    // the first pilot made here takes over the save from before pilots existed
-    const legacy = Object.keys(pilots).length ? null : readJSON(SAVE_KEY, null);
-    pilots[key] = { name, salt, hash, created: new Date().toISOString(), lastSignIn: null };
-    try {
-      localStorage.setItem(PILOTS_KEY, JSON.stringify(pilots));
-      if (legacy) localStorage.setItem(pilotKey(name), JSON.stringify(legacy));
-    } catch (e) { msg.textContent = 'Browser storage is blocked, so the pilot cannot be saved.'; return; }
-    signIn(name, legacy);
-  } else {
-    const p = pilots[key];
-    if (!p) { msg.textContent = 'No pilot with that name. Create one instead.'; return; }
-    if ((await hashPassword(p.salt, pass)) !== p.hash) { msg.textContent = 'Wrong password.'; return; }
-    signIn(p.name);
+  if (create && pass.length < 4) { msg.textContent = 'Use a password of at least 4 characters.'; return; }
+  msg.textContent = 'Signing in...';
+  try {
+    const data = await api(create ? '/api/signup' : '/api/login', { method: 'POST', body: { name, password: pass } });
+    storeSet(TOKEN_KEY, data.token);
+    rememberName(data.name);
+    signIn(data.name, data.save);
+  } catch (e) {
+    msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
   }
 }
 document.getElementById('loginIn').onclick = () => submitLogin(false);
 document.getElementById('loginNew').onclick = () => submitLogin(true);
 document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(false); });
-document.getElementById('switchPilot').onclick = showLogin;
+document.getElementById('switchPilot').onclick = signOut;
 // home screen buttons
 document.getElementById('homeFly').onclick = hideHome;
 document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar(); };
 document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
 document.getElementById('homeAdmin').onclick = () => { location.href = 'admin.html'; };
-document.getElementById('homeSwitch').onclick = showLogin;
+document.getElementById('homeSwitch').onclick = signOut;
 document.getElementById('openAdmin').onclick = () => { location.href = 'admin.html'; };
 renderPilots();
 
@@ -2616,6 +2842,30 @@ renderPilots();
 // ---------- main loop
 let last = performance.now();
 let fps = 60, lastFrameAt = 0;
+let snapRequested = false;
+// saves the scene and the plane as a PNG (the HUD is left out)
+function takePhoto() {
+  const out = document.createElement('canvas');
+  out.width = canvas.width; out.height = canvas.height;
+  const o = out.getContext('2d');
+  o.drawImage(canvas, 0, 0);
+  o.drawImage(glCanvas, 0, 0, out.width, out.height);
+  const stamp = new Date().toLocaleString();
+  o.font = `${Math.round(out.height / 40)}px ui-monospace, Menlo, monospace`;
+  o.fillStyle = 'rgba(0,0,0,0.45)';
+  o.fillRect(0, out.height - out.height / 14, out.width, out.height / 14);
+  o.fillStyle = '#e8fff5';
+  o.fillText(`Plane the Plane · ${pilot || ''} · ${stamp}`, out.height / 60, out.height - out.height / 30);
+  out.toBlob(b => {
+    if (!b) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = `plane-the-plane-${Date.now()}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    flashNote('PHOTO SAVED');
+  }, 'image/png');
+}
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -2627,15 +2877,74 @@ function frame(now) {
   fxCtx.clearRect(0, 0, W, H);
   drawGunsight();
   drawRings();
+  drawWildlife();
+  drawGhost();
   drawHUD(now);
   drawStatus();
   drawRain(now);
   drawMinimap();
   updateSound();
   checkMissions();
+  if (snapRequested) { snapRequested = false; takePhoto(); }
   requestAnimationFrame(frame);
 }
+resumeSession();
 requestAnimationFrame(frame);
+</script>
+<div id="touch" hidden>
+  <div id="stick"><div id="knob"></div></div>
+  <div id="tbtns">
+    <button data-hold="ShiftLeft">THROTTLE +</button>
+    <button data-hold="ControlLeft">THROTTLE −</button>
+    <button data-tap="KeyV">BACK FLIP</button>
+    <button data-tap="KeyX">BARREL ROLL</button>
+    <button data-tap="KeyG">GEAR</button>
+    <button data-tap="KeyN">WAYPOINT</button>
+  </div>
+</div>
+<script>
+// Touch controls: a stick for pitch and roll and buttons for the rest. They send the same keys as the keyboard,
+// and only show on touch screens.
+(function touchControls() {
+  const root = document.getElementById('touch');
+  const touchy = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  if (!touchy) return;
+  root.hidden = false;
+  document.getElementById('help').style.display = 'none';   // the keyboard list is no use on a touch screen
+  const fire = (type, code) => window.dispatchEvent(new KeyboardEvent(type, { code }));
+  root.querySelectorAll('[data-hold]').forEach(b => {
+    const code = b.dataset.hold;
+    const up = e => { e.preventDefault(); fire('keyup', code); };
+    b.addEventListener('touchstart', e => { e.preventDefault(); fire('keydown', code); }, { passive: false });
+    b.addEventListener('touchend', up);
+    b.addEventListener('touchcancel', up);
+  });
+  root.querySelectorAll('[data-tap]').forEach(b => {
+    const code = b.dataset.tap;
+    b.addEventListener('touchstart', e => { e.preventDefault(); fire('keydown', code); fire('keyup', code); }, { passive: false });
+  });
+  // the stick: pull back to climb, push to dive, drag sideways to roll
+  const stick = document.getElementById('stick'), knob = document.getElementById('knob');
+  const held = { KeyW: false, KeyS: false, KeyA: false, KeyD: false };
+  const setKey = (code, on) => { if (held[code] !== on) { held[code] = on; fire(on ? 'keydown' : 'keyup', code); } };
+  const move = e => {
+    const r = stick.getBoundingClientRect(), t = e.touches[0];
+    let x = (t.clientX - (r.left + r.width / 2)) / (r.width / 2);
+    let y = (t.clientY - (r.top + r.height / 2)) / (r.height / 2);
+    const m = Math.hypot(x, y);
+    if (m > 1) { x /= m; y /= m; }
+    knob.style.transform = `translate(${x * 40}px, ${y * 40}px)`;
+    setKey('KeyD', x > 0.3);
+    setKey('KeyA', x < -0.3);
+    setKey('KeyS', y < -0.3);
+    setKey('KeyW', y > 0.3);
+  };
+  const release = () => { for (const c in held) setKey(c, false); knob.style.transform = ''; };
+  stick.addEventListener('touchstart', e => { e.preventDefault(); move(e); }, { passive: false });
+  stick.addEventListener('touchmove', e => { e.preventDefault(); move(e); }, { passive: false });
+  stick.addEventListener('touchend', release);
+  stick.addEventListener('touchcancel', release);
+})();
 </script>
 <script>
 // Let the game load and run without wifi once it has been visited online.
