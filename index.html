@@ -58,6 +58,12 @@
 #tbtns { position: fixed; right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 210px; z-index: 15; }
 #tbtns button { margin: 0; padding: 14px 6px; background: rgba(10,20,35,0.65); color: #e8fff5; border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; font: 600 13px ui-monospace, Menlo, Consolas, monospace; touch-action: none; user-select: none; }
 </style>
+<style>
+#world { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.92); z-index: 22; }
+#world .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 14px; text-align: center; color: #e8fff5; max-width: 96vw; }
+#world canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; cursor: pointer; border-radius: 6px; }
+#world button { margin-top: 8px; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -95,6 +101,14 @@
     <p class="hint">Saved liveries appear in the hangar, where you pick one for each plane. Press Esc to close.</p>
   </div>
 </div>
+<div id="world">
+  <div class="card">
+    <h2>World map</h2>
+    <canvas id="worldCanvas"></canvas>
+    <p class="hint">Click an airport to fly there. Press U or Esc to close.</p>
+    <button id="worldClose">Close</button>
+  </div>
+</div>
 <div id="teleport">
   <div class="card">
     <h2>Teleport</h2>
@@ -112,6 +126,7 @@
       <button id="homeFly">Fly</button>
       <button id="homeHangar">Hangar</button>
       <button id="homeLivery">Livery maker</button>
+      <button id="homeWorld">World map</button>
       <button id="homeAdmin">Admin</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
@@ -607,9 +622,16 @@ const AIRPORT_DATA = [
   { code: 'ORD', name: "Chicago O'Hare", hdg: 100, len: 2896 },
   { code: 'HKG', name: 'Hong Kong', hdg: 70, len: 3800 }
 ];
+// real latitude and longitude of each airport, in degrees
+const GEO_AIRPORTS = {
+  LAX: [33.94, -118.41], SFO: [37.62, -122.38], JFK: [40.64, -73.78], LHR: [51.47, -0.45],
+  FRA: [50.03, 8.57], DXB: [25.25, 55.36], HND: [35.55, 139.78], SYD: [-33.95, 151.18],
+  SIN: [1.36, 103.99], DEN: [39.86, -104.67], ORD: [41.98, -87.9], HKG: [22.31, 113.92]
+};
 const AIRPORTS = AIRPORT_DATA.map((a, i) => {
   const ang = i / AIRPORT_DATA.length * Math.PI * 2 + 0.3, d = 1700 + hash2(i, 521) * 1800;
-  return { ...a, x: Math.cos(ang) * d, z: Math.sin(ang) * d, hdgRad: a.hdg * Math.PI / 180 };
+  const geo = GEO_AIRPORTS[a.code];
+  return { ...a, lat: geo[0], lon: geo[1], x: Math.cos(ang) * d, z: Math.sin(ang) * d, hdgRad: a.hdg * Math.PI / 180 };
 });
 function refreshPads() {
   pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: 0 }];
@@ -1082,6 +1104,8 @@ addEventListener('keydown', e => {
     if (e.code === 'Escape' || e.code === 'KeyT') toggleTeleport();
     return;
   }
+  if (worldOpen && (e.code === 'Escape' || e.code === 'KeyU')) return toggleWorld();
+  if (e.code === 'KeyU' && !e.repeat && pilot) return toggleWorld();
   if (e.code === 'Escape') return showHome();   // in the air or on the ground, Esc goes back to the home screen
   if (e.code === 'KeyT' && !e.repeat) return toggleTeleport();
   keys[e.code] = true;
@@ -1595,6 +1619,84 @@ function renderTeleport() {
     list.append(row);
   });
 }
+// ---------- world map: real continents and oceans, with the airports at their real places. Click one to fly there.
+// Continent outlines are simplified by hand (longitude, latitude), so coastlines are approximate.
+const CONTINENTS = [
+  [[-168,66],[-156,71],[-141,70],[-128,70],[-115,68],[-95,68],[-85,69],[-82,63],[-94,59],[-94,56],[-86,55],[-82,52],[-79,55],[-77,60],[-78,62],[-72,61],[-64,60],[-60,55],[-56,52],[-60,47],[-66,44],[-70,42],[-74,40],[-76,37],[-76,35],[-81,31],[-80,26],[-82,27],[-84,30],[-89,30],[-94,29],[-97,27],[-98,22],[-96,19],[-91,18],[-87,21],[-88,16],[-84,15],[-83,10],[-79,9],[-77,8],[-80,7],[-85,10],[-92,14],[-100,17],[-105,20],[-110,24],[-112,30],[-115,30],[-117,33],[-121,35],[-124,40],[-124,46],[-125,50],[-130,55],[-137,58],[-148,60],[-158,58],[-165,61]],
+  [[-80,9],[-72,12],[-62,10],[-52,5],[-50,0],[-35,-5],[-35,-10],[-39,-15],[-41,-22],[-48,-26],[-53,-34],[-58,-38],[-62,-40],[-65,-45],[-68,-50],[-69,-55],[-74,-52],[-75,-44],[-73,-35],[-71,-25],[-70,-18],[-76,-14],[-81,-6],[-80,0],[-78,3],[-77,8]],
+  [[-9,37],[-9,43],[-2,44],[-1,46],[-4,48],[2,51],[5,53],[8,54],[9,57],[11,55],[14,54],[19,55],[21,57],[24,59],[30,60],[23,60],[22,63],[25,65],[21,66],[17,62],[19,60],[13,56],[11,59],[5,58],[5,62],[14,67],[25,71],[40,68],[60,69],[70,73],[80,72],[100,77],[115,74],[140,72],[160,70],[180,68],[180,65],[178,62],[170,60],[163,60],[156,51],[155,58],[143,59],[138,54],[141,48],[135,43],[129,35],[126,38],[122,40],[121,31],[118,24],[110,20],[108,16],[106,10],[104,1],[100,3],[98,9],[98,16],[94,17],[92,22],[87,21],[80,15],[77,8],[73,17],[70,21],[67,25],[57,25],[56,27],[50,30],[48,30],[51,25],[56,26],[59,22],[52,16],[43,13],[39,21],[35,29],[34,31],[27,37],[26,40],[23,37],[20,40],[16,38],[12,44],[8,44],[3,43],[-1,38],[-5,36]],
+  [[-17,21],[-16,28],[-10,30],[-6,36],[10,37],[11,33],[20,31],[25,32],[32,31],[35,28],[38,22],[43,12],[51,12],[48,6],[41,-2],[40,-10],[40,-16],[35,-22],[32,-28],[27,-34],[19,-35],[18,-30],[14,-22],[12,-14],[13,-6],[9,-1],[9,4],[5,6],[-2,5],[-8,4],[-13,8],[-17,14]],
+  [[114,-22],[114,-34],[118,-35],[124,-33],[131,-31],[138,-35],[141,-38],[147,-38],[150,-37],[153,-28],[153,-25],[146,-19],[142,-11],[141,-17],[136,-12],[131,-11],[127,-14],[122,-17]],
+  [[-5,50],[1,51],[1,53],[-2,56],[-2,58],[-5,58],[-6,56],[-5,55],[-3,54],[-5,52]],
+  [[-10,52],[-6,52],[-6,55],[-8,55],[-10,54]],
+  [[130,31],[136,34],[141,36],[142,41],[141,45],[145,44],[140,40],[137,37],[132,35]],
+  [[-73,78],[-60,82],[-30,83],[-20,76],[-22,70],[-40,65],[-43,60],[-50,64],[-54,70],[-60,76]],
+  [[44,-25],[47,-25],[50,-16],[49,-12],[44,-17]],
+  [[95,5],[106,-6],[104,-5],[96,2]],
+  [[109,1],[116,7],[119,1],[116,-4],[110,-3]],
+  [[131,-1],[141,-3],[150,-10],[143,-9],[138,-8]]
+];
+const OCEANS = [
+  { name: 'Pacific', lon: -160, lat: 5 }, { name: 'Atlantic', lon: -35, lat: 20 },
+  { name: 'Indian', lon: 75, lat: -20 }, { name: 'Arctic', lon: 0, lat: 84 }, { name: 'Southern', lon: 20, lat: -62 }
+];
+let worldOpen = false;
+function toggleWorld() {
+  worldOpen = !worldOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('world').style.display = worldOpen ? 'flex' : 'none';
+  if (worldOpen) drawWorld();
+}
+const worldProject = (lon, lat, w, h) => [(lon + 180) / 360 * w, (90 - lat) / 180 * h];
+function drawWorld() {
+  const cv = document.getElementById('worldCanvas');
+  const w = Math.max(320, Math.min(900, (window.innerHeight - 190) * 2, window.innerWidth - 60)), h = Math.round(w / 2);
+  cv.width = w; cv.height = h;
+  const g = cv.getContext('2d');
+  // oceans: deeper blue toward the poles
+  const sea = g.createLinearGradient(0, 0, 0, h);
+  sea.addColorStop(0, '#0b2f55'); sea.addColorStop(0.5, '#135189'); sea.addColorStop(1, '#0b2f55');
+  g.fillStyle = sea; g.fillRect(0, 0, w, h);
+  // latitude and longitude lines every 30 degrees
+  g.strokeStyle = 'rgba(180,220,255,0.14)'; g.lineWidth = 1;
+  for (let lon = -180; lon <= 180; lon += 30) { const [x] = worldProject(lon, 0, w, h); g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+  for (let lat = -60; lat <= 60; lat += 30) { const [, y] = worldProject(0, lat, w, h); g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+  // land
+  g.fillStyle = '#4f8a4a'; g.strokeStyle = '#2f5f2c';
+  for (const poly of CONTINENTS) {
+    g.beginPath();
+    poly.forEach(([lon, lat], i) => { const [x, y] = worldProject(lon, lat, w, h); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.closePath(); g.fill(); g.stroke();
+  }
+  // ocean names
+  g.font = `italic ${Math.round(w / 45)}px Georgia, serif`;
+  g.fillStyle = 'rgba(190,230,255,0.8)'; g.textAlign = 'center';
+  for (const o of OCEANS) { const [x, y] = worldProject(o.lon, o.lat, w, h); g.fillText(o.name + ' Ocean', x, y); }
+  g.textAlign = 'start';
+  // airports, with their codes
+  g.font = `${Math.max(10, Math.round(w / 70))}px ui-monospace, Menlo, monospace`;
+  for (const a of AIRPORTS) {
+    const [x, y] = worldProject(a.lon, a.lat, w, h);
+    g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(x, y, 4, 0, 6.3); g.fill();
+    g.fillStyle = '#e8fff5'; g.fillText(a.code, x + 6, y - 4);
+  }
+  // click an airport to fly there
+  cv.onclick = e => {
+    const r = cv.getBoundingClientRect();
+    const px = (e.clientX - r.left) * w / r.width, py = (e.clientY - r.top) * h / r.height;
+    let best = null, bestD = 16;
+    for (const a of AIRPORTS) {
+      const [x, y] = worldProject(a.lon, a.lat, w, h);
+      const d = Math.hypot(x - px, y - py);
+      if (d < bestD) { bestD = d; best = a; }
+    }
+    if (best) {
+      toggleWorld();
+      teleportTo({ name: best.code, x: best.x, z: best.z, hdg: best.hdgRad, air: false, ground: true });
+    }
+  };
+}
+
 function teleportTo(spot) {
   resetPlane(plane.fuel);
   const p = plane;
@@ -1602,7 +1704,7 @@ function teleportTo(spot) {
     p.pos = [spot.x, terrainAt(spot.x, spot.z) + 0.1, spot.z];
     p.yaw = spot.hdg;
     p.onGround = true;
-    toggleTeleport();
+    if (teleportOpen) toggleTeleport();
     return;
   }
   if (spot.air) {
@@ -1613,7 +1715,7 @@ function teleportTo(spot) {
     p.throttle = 0.7;
     p.onGround = false;
   }
-  toggleTeleport();
+  if (teleportOpen) toggleTeleport();
 }
 
 // Flaps add lift and drag and lower the stall speed. The gear adds drag.
@@ -1676,7 +1778,7 @@ function daylight() {
 
 function update(dt) {
   const p = plane;
-  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen) return;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen) return;
   const m = p.model;
   windT += dt;
   fogEnd = FOG_END - fogLevel() * 2800;
@@ -3058,6 +3160,8 @@ document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar
 document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
 document.getElementById('homeAdmin').onclick = () => { location.href = 'admin.html'; };
 document.getElementById('homeSwitch').onclick = signOut;
+document.getElementById('worldClose').onclick = toggleWorld;
+document.getElementById('homeWorld').onclick = () => { hideHome(); toggleWorld(); };
 document.getElementById('callsign').onchange = e => { save.callsign = e.target.value.trim().slice(0, 12); writeSave(); };
 document.getElementById('openAdmin').onclick = () => { location.href = 'admin.html'; };
 renderPilots();
