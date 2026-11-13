@@ -443,6 +443,28 @@ const MODELS = [
       fin: { z: -26, cr: 8, ct: 1, h: 4.5, sweep: 0.8, col: [30, 40, 70] },
       engines: [{ s: 4, drop: 1.0, r: 0.7, len: 6, fwd: 2 }, { s: 6, drop: 1.0, r: 0.7, len: 6, fwd: 2 }]
     }
+  },
+  {
+    name: 'Seaplane', level: 2, price: 3500, thrust: 6, stall: 17, drag: 0.0012, float: true,
+    spec: {
+      len: 8.3, r: 0.6, nose: 0.14, tail: 0.22, body: [244, 244, 248], stripe: [40, 90, 200],
+      wing: { y: 0.9, z: 1.2, cr: 1.6, ct: 1.2, sweep: 0.0, span: 5.5, dih: 0.1, col: [228, 232, 240] },
+      tail: { y: 0.4, z: -3.0, cr: 1.2, ct: 0.8, sweep: 0.25, span: 1.9 },
+      fin: { z: -2.5, cr: 1.5, ct: 0.7, h: 1.7, sweep: 0.5, col: [40, 90, 200] },
+      engines: [{ at: [0, 0.1, 4.0], r: 0.5, len: 1.3 }],
+      prop: true, floats: true
+    }
+  },
+  {
+    name: 'Helicopter', level: 3, price: 8000, thrust: 8, stall: 0, drag: 0.003, heli: true,
+    spec: {
+      len: 9.0, r: 0.9, nose: 0.22, tail: 0.58, body: [236, 236, 240], stripe: [220, 40, 40],
+      wing: { y: 0.1, z: 0.4, cr: 0.9, ct: 0.6, sweep: 0.0, span: 1.7, dih: 0, col: [200, 206, 216] },
+      tail: { y: 0.55, z: -3.9, cr: 0.8, ct: 0.5, sweep: 0.3, span: 1.0 },
+      fin: { z: -3.5, cr: 1.4, ct: 0.7, h: 1.4, sweep: 0.55, col: [220, 40, 40] },
+      engines: [],
+      rotor: 5.4, heli: true
+    }
   }
 ];
 
@@ -601,6 +623,24 @@ function buildAircraft(m) {
     out.push({ pts: [[-0.95, 0.1, zf], [0.95, 0.1, zf], [0.95, -0.1, zf], [-0.95, -0.1, zf]], col: PROP, two: true, spin: true });
   }
 
+  // seaplane: two floats under the body, joined by struts
+  if (sp.floats) {
+    for (const k of [-1, 1]) {
+      nacelle(k * 1.25, -R - 0.25, 2.8, 0.34, 5.2);
+      flat([[k * 0.5, -R * 0.5, 1.5], [k * 1.25, -R - 0.2, 1.7], [k * 1.25, -R - 0.2, 1.4], [k * 0.5, -R * 0.5, 1.2]], ENGINE);
+      flat([[k * 0.5, -R * 0.5, -0.8], [k * 1.25, -R - 0.2, -0.6], [k * 1.25, -R - 0.2, -0.9], [k * 0.5, -R * 0.5, -1.1]], ENGINE);
+    }
+  }
+  // helicopter: a mast and two long blades that turn about the vertical axis
+  if (sp.rotor) {
+    const ry = R + 0.85, rz = 0.5, rl = sp.rotor;
+    out.push({ pts: [[-0.18, ry, rz - rl], [0.18, ry, rz - rl], [0.18, ry, rz + rl], [-0.18, ry, rz + rl]], col: PROP, two: true, spinH: true });
+    out.push({ pts: [[-rl, ry, rz - 0.18], [rl, ry, rz - 0.18], [rl, ry, rz + 0.18], [-rl, ry, rz + 0.18]], col: PROP, two: true, spinH: true });
+    flat([[-0.12, R * 0.9, rz], [0.12, R * 0.9, rz], [0.12, ry, rz], [-0.12, ry, rz]], ENGINE);
+    flat([[0, R * 0.9, rz - 0.12], [0, R * 0.9, rz + 0.12], [0, ry, rz + 0.12], [0, ry, rz - 0.12]], ENGINE);
+    m.rotor = { y: ry, z: rz };
+  }
+
   // stand the lowest point on the ground (y = 0), and keep the size for the camera, minimap and shadow
   let minY = Infinity, zMax = 0, xMax = 0;
   for (const face of out) {
@@ -617,6 +657,7 @@ function buildAircraft(m) {
   m.lights = lights.map(l => ({ ...l, p: [l.p[0], l.p[1] + dy, l.p[2]] }));
   // the propeller spins about this point
   m.hub = [0, dy, L / 2 + 0.05];
+  if (m.rotor) m.rotor = { y: m.rotor.y + dy, z: m.rotor.z };
   // landing gear hangs from the body origin (the bottom of the fuselage) down to the ground when lowered
   const gl = Math.max(0.8, L * 0.04);
   m.gearLen = gl;
@@ -628,6 +669,14 @@ function buildAircraft(m) {
   leg(0, L * 0.32);                                   // nose gear
   const mx = Math.max(R * 0.8, 0.9), mz = sp.wing.z - 0.5;
   leg(-mx, mz); leg(mx, mz);                          // main gear
+  if (sp.floats) { m.gearLen = 0; gear.length = 0; }   // the floats sit on the water: there is no landing gear
+  if (sp.heli) {                                        // skids instead of wheels
+    gear.length = 0;
+    for (const k of [-1, 1]) {
+      gear.push({ pts: [[k * 0.75, -gl, -1.8], [k * 0.75 + 0.08, -gl, -1.8], [k * 0.75 + 0.08, -gl, 2.2], [k * 0.75, -gl, 2.2]], col: [30, 30, 34], two: true });
+      for (const z of [-0.9, 0.9]) gear.push({ pts: [[k * 0.55, 0.1, z], [k * 0.55 + 0.07, 0.1, z], [k * 0.75 + 0.07, -gl, z], [k * 0.75, -gl, z]], col: [150, 150, 156], two: true });
+    }
+  }
   m.gear = gear;
   // normals for shading: fuselage panels that meet at a point share one, so the curves shade smoothly;
   // flat faces and hard edges keep their own
@@ -1005,6 +1054,7 @@ function cruiseX() {
 }
 function toggleCruise() {
   const c = save.contract, p = plane;
+  if (p.model.heli) { flashNote('NO CRUISE IN A HELICOPTER'); return; }
   if (cruise) { cruise = false; flashNote('CRUISE OFF'); return; }
   if (!c || !c.km) { flashNote('ACCEPT A LONG-HAUL JOB IN THE HANGAR FIRST'); return; }
   if (p.onGround || p.pos[1] < 1200) { flashNote('CLIMB ABOVE 1200 M TO CRUISE'); return; }
@@ -1598,7 +1648,7 @@ function drawRace() {
 }
 
 // ---------- airline career: put planes you own on routes between the real airports; they earn while you are away
-const CAPACITY = { Trainer: 2, 'Cessna 172': 3, 'Sport Jet': 8, 'Embraer E175': 76, '737': 160, Airliner: 180, '757': 200, '767': 220, '787': 240, A330: 250, A350: 300, '777X': 350, '747': 400, A380: 500, 'F-16': 0, Concorde: 100 };
+const CAPACITY = { Seaplane: 5, Helicopter: 6, Trainer: 2, 'Cessna 172': 3, 'Sport Jet': 8, 'Embraer E175': 76, '737': 160, Airliner: 180, '757': 200, '767': 220, '787': 240, A330: 250, A350: 300, '777X': 350, '747': 400, A380: 500, 'F-16': 0, Concorde: 100 };
 const FLEET_CAP_HOURS = 8;   // a plane earns for at most 8 hours before you collect
 const fleetSlots = () => 1 + Math.floor(careerLevel() / 2);
 const airportBy = code => AIRPORTS.find(a => a.code === code);
@@ -1966,6 +2016,8 @@ function resetPlane(fuel = 1) {
     gear: true, flaps: 0, ap: null,
     crashed: false, crashMsg: ''
   };
+  // a seaplane starts on the lake
+  if (plane.model.float) { plane.pos = [low.x, WATER, low.z]; }
 }
 resetPlane();
 
@@ -2500,6 +2552,7 @@ document.getElementById('openLivery').onclick = toggleLivery;
 // The gear can only go up in the air; it can always come down.
 function toggleGear() {
   const p = plane;
+  if (p.model.float || p.model.heli) { flashNote(p.model.float ? 'FLOATS: NO LANDING GEAR TO MOVE' : 'SKIDS DO NOT RETRACT'); return; }
   if (p.gear && p.onGround) return;
   // lowering the gear in the air sometimes jams; pressing G again forces it down
   if (!p.gear && !p.onGround && !p.gearTried && Math.random() < 0.12) {
@@ -2513,6 +2566,7 @@ function toggleGear() {
 // Autopilot holds the heading and altitude it was engaged at, and only works in the air.
 function toggleAutopilot() {
   const p = plane;
+  if (p.model.heli) { flashNote('NO AUTOPILOT IN A HELICOPTER'); return; }
   if (p.ap) p.ap = null;
   else if (!p.onGround && !p.crashed) p.ap = { yaw: p.yaw, alt: p.pos[1] };
 }
@@ -2526,6 +2580,7 @@ function flashNote(text) { noteText = text; noteUntil = performance.now() + 3000
 const FLIP_PAY = 50;
 function startFlip() {
   const p = plane;
+  if (p.model.heli) { flashNote('NOT IN A HELICOPTER'); return; }
   if (p.crashed) { flashNote('CRASHED: PRESS R TO RESTART'); return; }
   if (p.onGround) { flashNote('TAKE OFF FIRST, THEN PRESS V'); return; }
   if (p.flip) return;
@@ -2538,6 +2593,7 @@ function startFlip() {
 const BARREL_PAY = 40;
 function startBarrel() {
   const p = plane;
+  if (p.model.heli) { flashNote('NOT IN A HELICOPTER'); return; }
   if (p.crashed) { flashNote('CRASHED: PRESS R TO RESTART'); return; }
   if (p.onGround) { flashNote('TAKE OFF FIRST, THEN PRESS X'); return; }
   if (p.barrel) return;
@@ -2753,6 +2809,66 @@ function daylight() {
   return clamp(Math.sin((simHour - 6) / 12 * Math.PI) * 1.5, 0.35, 1);
 }
 
+// ---------- helicopter: the throttle is the collective, W/S tilt it forward and back, A/D sideways, Q/E turn
+function updateHeli(dt) {
+  const p = plane, m = p.model;
+  const pitchIn = (down('KeyS') || down('ArrowUp') ? 1 : 0) - (down('KeyW') || down('ArrowDown') ? 1 : 0);
+  const rollIn = (down('KeyD') || down('ArrowRight') ? 1 : 0) - (down('KeyA') || down('ArrowLeft') ? 1 : 0);
+  const yawIn = (down('KeyE') ? 1 : 0) - (down('KeyQ') ? 1 : 0);
+  const throttleIn = (down('ShiftLeft') || down('ShiftRight') ? 1 : 0) - (down('ControlLeft') || down('ControlRight') ? 1 : 0);
+  p.throttle = clamp(p.throttle + throttleIn * 0.5 * dt, 0, 1);
+  p.fuel = Math.max(0, p.fuel - (0.0009 * p.throttle + 0.0002 + (p.leak ? 0.0025 : 0)) * dt);
+  const wasOnGround = p.onGround, k = Math.min(1, 3 * dt);
+  p.pitch += ((p.onGround ? 0 : pitchIn * 0.4) - p.pitch) * k;
+  p.roll += ((p.onGround ? 0 : -rollIn * 0.4) - p.roll) * k;
+  p.yaw += yawIn * 1.0 * dt;
+  const ax = axes(p);
+  let v = p.vel;
+  const power = p.fuel > 0 ? (p.engineOut ? 0.25 : 1) * (1 - wearOf(m) * 0.002) : 0;
+  v = add(v, mul(ax.up, p.throttle * 20 * power * dt));   // lift along the rotor axis: hover is about half collective
+  v[1] -= G * dt;
+  const kH = Math.exp(-0.12 * dt), kV = Math.exp(-0.9 * dt);
+  v[0] *= kH; v[2] *= kH; v[1] *= kV;
+  p.vel = v;
+  const before = p.pos;
+  p.pos = add(p.pos, mul(v, dt));
+  if (!p.onGround) { p.pos[0] += wind[0] * dt; p.pos[2] += wind[1] * dt; }
+  p.speed = len(v);
+  const gy = terrainAt(p.pos[0], p.pos[2]) + m.gearLen;
+  if (p.pos[1] <= gy) {
+    const impact = -v[1];
+    p.pos[1] = gy;
+    if (!wasOnGround) {
+      if (impact > 6) return crash('Hard landing');
+      if (Math.abs(p.roll) > 0.6 || Math.abs(p.pitch) > 0.6) return crash('Rotor strike');
+      if (impact > 5) { playBurst(0.5, 0.25, 600); buzz(120); }
+      awardLanding(impact);
+    }
+    if (v[1] < 0) v[1] = 0;
+    v[0] *= Math.exp(-2.5 * dt); v[2] *= Math.exp(-2.5 * dt);
+    p.pitch *= Math.exp(-5 * dt); p.roll *= Math.exp(-5 * dt);
+    p.onGround = true;
+  } else {
+    p.onGround = false;
+  }
+  checkRings(before, p.pos);
+  checkWildlife(p.pos, dt);
+  checkRace(before, p.pos, dt);
+  if (!p.onGround) {
+    p.flight.dist += p.speed * dt;
+    p.flight.secs += dt;
+    updateStorm(p, dt);
+    if (!p.engineOut && Math.random() < dt / 400 * (1 + wearOf(m) / 25)) { p.engineOut = true; flashNote('ENGINE FAILURE! PRESS K TO RESTART (AUTOROTATION)'); }
+  }
+  p.histT = (p.histT || 0) + dt;
+  if (p.histT >= 0.1) {
+    p.histT = 0;
+    p.hist = p.hist || [];
+    p.hist.push({ pos: [...p.pos], yaw: p.yaw, pitch: p.pitch, roll: p.roll });
+    if (p.hist.length > 60) p.hist.shift();
+  }
+}
+
 function update(dt) {
   const p = plane;
   if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen) return;
@@ -2761,6 +2877,7 @@ function update(dt) {
   fogEnd = FOG_END - fogLevel() * 2800;
   wind = windAt(p.pos);
   simHour = realHour();
+  if (m.heli) return updateHeli(dt);
 
   const auth = Math.min(1, 0.3 + p.speed / 45);   // controls get stronger with airspeed
   let pitchIn = (down('KeyS') || down('ArrowUp') ? 1 : 0) - (down('KeyW') || down('ArrowDown') ? 1 : 0);
@@ -2917,6 +3034,7 @@ function update(dt) {
     const impact = -v[1];
     p.pos[1] = gy;
     if (!wasOnGround) {
+      if (m.float && Math.abs(terrainAt(p.pos[0], p.pos[2]) - WATER) > 0.05) return crash('Floats torn on land');
       if (!p.gear) return crash('Gear up landing');
       if (impact > 10) return crash('Hard landing');
       if (Math.abs(p.roll) > 0.5) return crash('Wing strike');
@@ -3271,13 +3389,16 @@ function render() {
     // propeller blades turn about the hub, faster at higher throttle
     const ang = performance.now() / 1000 * (4 + 40 * p.throttle), ca = Math.cos(ang), sa = Math.sin(ang), hub = p.model.hub;
     const spun = pts => pts.map(([x, y, z]) => { const dy = y - hub[1]; return [x * ca - dy * sa, hub[1] + x * sa + dy * ca, z]; });
+    // helicopter blades turn about the vertical axis through the mast
+    const angH = performance.now() / 1000 * (8 + 36 * p.throttle), cH = Math.cos(angH), sH = Math.sin(angH), rz = p.model.rotor ? p.model.rotor.z : 0;
+    const spunH = pts => pts.map(([x, y, z]) => { const dz = z - rz; return [x * cH - dz * sH, y, rz + x * sH + dz * cH]; });
     const lv = liveryOf(p.model);
     // the mesh goes to the WebGL layer (drawn with a depth buffer), with its normals turned into world space
     const toDir = v => add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2]));
     const pics = lv ? picsOf(lv) : {};
     for (const face of p.model.mesh) {
       const pic = !face.spin && PIC_SLOT[face.role] ? pics[PIC_SLOT[face.role]] : null;
-      planeTris.push({ pts: (face.spin ? spun(face.pts) : face.pts).map(toWorld), vn: face.vn.map(toDir), col: paintColor(lv, face), pic, uvFor: d => decalUVs(p.model, face, d) });
+      planeTris.push({ pts: (face.spin ? spun(face.pts) : face.spinH ? spunH(face.pts) : face.pts).map(toWorld), vn: face.vn.map(toDir), col: paintColor(lv, face), pic, uvFor: d => decalUVs(p.model, face, d) });
     }
     if (p.gear) for (const face of p.model.gear) planeTris.push({ pts: face.pts.map(toWorld), vn: face.vn.map(toDir), col: face.col });
     // a faint disc where the propeller turns
