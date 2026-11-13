@@ -173,6 +173,8 @@
     <button id="openLivery">Livery maker</button>
     <h3>Missions</h3>
     <div id="missions"></div>
+    <h3>Achievements</h3>
+    <div id="badges"></div>
     <h3>Daily missions</h3>
     <div id="daily"></div>
     <h3>Contracts</h3>
@@ -1186,6 +1188,47 @@ function drawLesson() {
   ctx.textAlign = 'start';
 }
 
+// ---------- achievements: badges for things you have done, 50 coins each
+const BADGES = [
+  { id: 'firstLanding', text: 'First landing', ok: () => (save.landings || 0) >= 1 },
+  { id: 'landings10', text: '10 landings', ok: () => (save.landings || 0) >= 10 },
+  { id: 'flip', text: 'First back flip', ok: () => (save.flips || 0) >= 1 },
+  { id: 'barrel', text: 'First barrel roll', ok: () => (save.barrels || 0) >= 1 },
+  { id: 'rings', text: 'Fly through all 12 rings', ok: () => (save.ringsFlown || 0) >= 12 },
+  { id: 'missions', text: 'Finish every mission', ok: () => MISSIONS.every(m => (save.missions || []).includes(m.id)) },
+  { id: 'tour', text: 'Land at all 12 airports', ok: () => (save.visited || []).length >= AIRPORTS.length },
+  { id: 'overseas', text: 'Finish a long-haul flight', ok: () => (save.longhauls || 0) >= 1 },
+  { id: 'night', text: 'Land at night', ok: () => !!save.nightLanding },
+  { id: 'school', text: 'Pass all the flight lessons', ok: () => LESSONS.every(l => (save.lessons || []).includes(l.id)) },
+  { id: 'daily', text: 'Finish all three daily missions', ok: () => !!save.daily && save.daily.date === today() && save.daily.done.length >= 3 },
+  { id: 'rich', text: 'Hold 10,000 coins', ok: () => save.coins >= 10000 }
+];
+function checkBadges() {
+  if (!pilot) return;
+  save.badges = save.badges || [];
+  for (const b of BADGES) {
+    if (save.badges.includes(b.id) || !b.ok()) continue;
+    save.badges.push(b.id);
+    save.coins += 50;
+    writeSave();
+    flashNote(`ACHIEVEMENT: ${b.text.toUpperCase()} +50 COINS`);
+    playTones([[659, 0, 0.12], [880, 0.12, 0.3]]);
+  }
+}
+function renderBadges() {
+  const box = document.getElementById('badges');
+  if (!box || !pilot) return;
+  box.innerHTML = '';
+  for (const b of BADGES) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${(save.badges || []).includes(b.id) ? 'EARNED' : 'TODO  '}  ${b.text}`;
+    row.append(label);
+    box.append(row);
+  }
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -1508,6 +1551,10 @@ function awardLanding(impact) {
   if (lesson) lesson.landed = impact;
   save.landings = (save.landings || 0) + 1;
   bumpDaily('landings');
+  // remember which airports you have landed at, and whether it was dark
+  const fieldHere = AIRPORTS.find(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300);
+  if (fieldHere) { save.visited = save.visited || []; if (!save.visited.includes(fieldHere.code)) save.visited.push(fieldHere.code); }
+  if (daylight() < 0.45) save.nightLanding = true;
   // a cargo or passenger job: the first landing picks up, the second (at the drop-off) pays
   if (c && c.kind && c.stage === 0 && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200) {
     c.stage = 1;
@@ -1521,6 +1568,7 @@ function awardLanding(impact) {
     save.coins += c.pay;
     save.xp += c.xp;
     save.completed += 1;
+    if (c.km) save.longhauls = (save.longhauls || 0) + 1;
     save.contract = null;
     p.lastReward = c.pay;
     writeSave();
@@ -1606,6 +1654,7 @@ function refuel() {
   if (pct <= 0) return;
   save.coins -= pct;
   p.fuel = Math.min(1, p.fuel + pct / 100);
+  p.leak = false;
   writeSave();
 }
 
@@ -1625,6 +1674,7 @@ function toggleHangar() {
 // the missions and best flights shown in the hangar
 function renderExtras() {
   renderDaily();
+  renderBadges();
   const missions = document.getElementById('missions');
   missions.innerHTML = '';
   for (const m of MISSIONS) {
@@ -1921,7 +1971,15 @@ document.getElementById('openLivery').onclick = toggleLivery;
 // The gear can only go up in the air; it can always come down.
 function toggleGear() {
   const p = plane;
-  if (!p.gear || !p.onGround) p.gear = !p.gear;
+  if (p.gear && p.onGround) return;
+  // lowering the gear in the air sometimes jams; pressing G again forces it down
+  if (!p.gear && !p.onGround && !p.gearTried && Math.random() < 0.12) {
+    p.gearTried = true;
+    flashNote('GEAR STUCK! PRESS G AGAIN TO FORCE IT DOWN');
+    return;
+  }
+  p.gearTried = false;
+  p.gear = !p.gear;
 }
 // Autopilot holds the heading and altitude it was engaged at, and only works in the air.
 function toggleAutopilot() {
@@ -2193,7 +2251,7 @@ function update(dt) {
   }
 
   p.throttle = clamp(p.throttle + throttleIn * 0.5 * dt, 0, 1);
-  p.fuel = Math.max(0, p.fuel - (0.0011 * p.throttle + 0.00015) * dt);   // full throttle empties the tank in about 13 minutes, idle in about 110
+  p.fuel = Math.max(0, p.fuel - (0.0011 * p.throttle + 0.00015 + (p.leak ? 0.0025 : 0)) * dt);   // full throttle empties the tank in about 13 minutes, idle in about 110
   if (p.flip) {
     const step = 2.0 * dt;   // about three seconds for the whole loop
     p.pitch += step;
@@ -2277,6 +2335,11 @@ function update(dt) {
   if (!p.engineOut && !p.onGround && !cruise && Math.random() < dt / 400) {
     p.engineOut = true;
     flashNote('ENGINE FAILURE! PRESS K TO RESTART');
+  }
+  // fuel leak: now and then the tank starts to empty fast; refuelling on the ground fixes it
+  if (!p.leak && !p.onGround && !cruise && Math.random() < dt / 900) {
+    p.leak = true;
+    flashNote('FUEL LEAK! LAND SOON');
   }
   // keep the last 6 seconds for the replay
   p.histT = (p.histT || 0) + dt;
@@ -3206,6 +3269,8 @@ function drawStatus() {
   const rain = rainLevel();
   const rows = [
     ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
+    ...(p.leak ? [['FUEL LEAK', 'YES', '#ff6b6b']] : []),
+    ...(p.engineOut ? [['ENGINE', 'OUT', '#ff6b6b']] : []),
     ['FLAPS', p.flaps + ' / 3', '#8fb3c9'],
     ['AUTOPILOT', p.ap ? (p.ap.wp ? 'NAV' : 'ENGAGED') : 'OFF', p.ap ? '#3ddc97' : '#8fb3c9'],
     ['LIGHTS', lightsOn ? 'ON' : 'OFF', '#8fb3c9'],
@@ -3595,7 +3660,7 @@ const isAdmin = () => !!pilot && pilot.toLowerCase() === 'human';
 function showHome() {
   homeOpen = true;
   const best = save.records && save.records[0] ? save.records[0].km : '0';
-  document.getElementById('homeStats').textContent = `Level ${careerLevel()} · best flight ${best} km · ${save.flips || 0} flips · ${save.completed || 0} contracts · ${(save.missions || []).length} of ${MISSIONS.length} missions`;
+  document.getElementById('homeStats').textContent = `Level ${careerLevel()} · best flight ${best} km · ${save.flips || 0} flips · ${save.completed || 0} contracts · ${(save.missions || []).length} of ${MISSIONS.length} missions · ${(save.badges || []).length} of ${BADGES.length} achievements`;
   document.getElementById('callsign').value = save.callsign || '';
   for (const k in keys) keys[k] = false;
   document.getElementById('homeWho').textContent = `Signed in as ${pilot}`;
@@ -3713,6 +3778,7 @@ function frame(now) {
   updateSound();
   checkMissions();
   checkDaily();
+  checkBadges();
   updateTower();
   checkLesson();
   if (snapRequested) { snapRequested = false; takePhoto(); }
