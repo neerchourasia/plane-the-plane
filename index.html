@@ -475,9 +475,41 @@ function buildAircraft(m) {
     }
   };
   const wingCol = sp.wing.col, f = sp.fin, y0 = R * 0.5, tanF = Math.tan(f.sweep);
+  const tailWg = { ...sp.tail, y: sp.tTail ? y0 + f.h - 0.4 : sp.tail.y };
   surface(sp.wing, wingCol, f.col, true);
-  surface({ ...sp.tail, y: sp.tTail ? y0 + f.h - 0.4 : sp.tail.y }, sp.tail.col || wingCol, f.col, false);
-  flat([[0, y0, f.z], [0, y0 + f.h, f.z - tanF * f.h], [0, y0 + f.h, f.z - tanF * f.h - f.ct], [0, y0, f.z - f.cr]], f.col);
+  surface(tailWg, sp.tail.col || wingCol, f.col, false);
+
+  // hinge lines: thin dark strips on both faces mark the ailerons, flaps and elevators
+  const HINGE = [52, 56, 66];
+  const chordAt = (wg, s) => wg.cr + (wg.ct - wg.cr) * (s - R * 0.6) / (wg.span - R * 0.6);
+  const hinge = (wg, s0, s1, frac, w = 0.05) => {
+    const g = planform(wg);
+    for (const k of [-1, 1]) {
+      for (const dy of [0.015, -0.015]) {
+        const z0 = g.LE(s0) - frac * chordAt(wg, s0), z1 = g.LE(s1) - frac * chordAt(wg, s1);
+        flat([[k * s0, g.Y(s0) + dy, z0], [k * s1, g.Y(s1) + dy, z1], [k * s1, g.Y(s1) + dy, z1 - w], [k * s0, g.Y(s0) + dy, z0 - w]], HINGE);
+      }
+    }
+  };
+  hinge(sp.wing, sp.wing.span * 0.62, sp.wing.span * 0.94, 0.74);    // aileron
+  hinge(sp.wing, R * 0.6 + 0.35, sp.wing.span * 0.48, 0.74);         // flap
+  hinge(tailWg, R * 0.6 + 0.1, tailWg.span * 0.95, 0.68);            // elevator
+
+  // fin: a thin wedge with a leading edge, top and trailing edge, not a flat card; a hinge line marks the rudder
+  {
+    const th = Math.max(0.04, f.cr * 0.035), tk = 0.4;
+    const tipZ = f.z - tanF * f.h, edge = mul(f.col, 0.92);
+    for (const k of [-1, 1]) {
+      flat([[k * th, y0, f.z], [k * th * tk, y0 + f.h, tipZ], [k * th * tk, y0 + f.h, tipZ - f.ct], [k * th, y0, f.z - f.cr]], f.col);
+    }
+    flat([[-th, y0, f.z], [th, y0, f.z], [th * tk, y0 + f.h, tipZ], [-th * tk, y0 + f.h, tipZ]], edge);
+    flat([[-th * tk, y0 + f.h, tipZ], [th * tk, y0 + f.h, tipZ], [th * tk, y0 + f.h, tipZ - f.ct], [-th * tk, y0 + f.h, tipZ - f.ct]], edge);
+    flat([[-th, y0, f.z - f.cr], [th, y0, f.z - f.cr], [th * tk, y0 + f.h, tipZ - f.ct], [-th * tk, y0 + f.h, tipZ - f.ct]], edge);
+    for (const k of [-1, 1]) {
+      const at = (t, frac) => [k * (th - th * (1 - tk) * t + 0.006), y0 + f.h * t, f.z - tanF * f.h * t - frac * (f.cr + (f.ct - f.cr) * t)];
+      flat([at(0.06, 0.68), at(0.94, 0.68), at(0.94, 0.72), at(0.06, 0.72)], HINGE);
+    }
+  }
   lights.push({ p: [0, y0 + f.h, f.z - tanF * f.h - f.ct / 2], col: [255, 255, 255], flash: true });
 
   // nacelles: the intake is at zF and the cowl runs back along -z
@@ -630,11 +662,29 @@ const GEO_AIRPORTS = {
   FRA: [50.03, 8.57], DXB: [25.25, 55.36], HND: [35.55, 139.78], SYD: [-33.95, 151.18],
   SIN: [1.36, 103.99], DEN: [39.86, -104.67], ORD: [41.98, -87.9], HKG: [22.31, 113.92]
 };
-const AIRPORTS = AIRPORT_DATA.map((a, i) => {
-  const ang = i / AIRPORT_DATA.length * Math.PI * 2 + 0.3, d = 1700 + hash2(i, 521) * 1800;
-  const geo = GEO_AIRPORTS[a.code];
-  return { ...a, lat: geo[0], lon: geo[1], x: Math.cos(ang) * d, z: Math.sin(ang) * d, hdgRad: a.hdg * Math.PI / 180 };
-});
+// Runways are kept to 2600 m so twelve of them fit in the 12 km world. Each airport is placed where its runway
+// stays clear of the home runway and of the other airports, otherwise their flat pads would bury each other.
+const AIRPORTS = [];
+(() => {
+  const spread = (x, z, ux, uz, hl) => { const pts = []; for (let t = -hl; t <= hl; t += 150) pts.push([x + ux * t, z + uz * t]); return pts; };
+  const homeGap = ([px, pz]) => Math.hypot(Math.max(Math.abs(px) - RUNWAY.x, 0), Math.max(RUNWAY.z0 - pz, pz - RUNWAY.z1, 0));
+  AIRPORT_DATA.forEach((a, i) => {
+    const hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad), len = Math.min(a.len, 2600), hl = len / 2;
+    let spot = null;
+    for (let t = 0; t < 2000 && !spot; t++) {
+      const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200;
+      const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
+      const pts = spread(x, z, ux, uz, hl);
+      if (pts.some(([px, pz]) => Math.abs(px) > 5500 || Math.abs(pz) > 5500)) continue;
+      if (pts.some(q => homeGap(q) < 500)) continue;
+      if (AIRPORTS.some(o => spread(o.x, o.z, Math.sin(o.hdgRad), Math.cos(o.hdgRad), o.len / 2).some(q => pts.some(r => Math.hypot(q[0] - r[0], q[1] - r[1]) < 450)))) continue;
+      spot = { x, z };
+    }
+    if (!spot) spot = { x: Math.cos(i) * 4800, z: Math.sin(i) * 4800 };
+    const geo = GEO_AIRPORTS[a.code];
+    AIRPORTS.push({ ...a, len, realLen: a.len, lat: geo[0], lon: geo[1], x: spot.x, z: spot.z, hdgRad });
+  });
+})();
 function refreshPads() {
   pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: 0 }];
   for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, 20], elev: naturalAt(a.x, a.z) });
