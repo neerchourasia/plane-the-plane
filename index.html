@@ -590,11 +590,30 @@ function naturalAt(x, z) {
 }
 // Pads are flat areas: inside one the ground sits at the pad's height, and it blends back outside.
 // The runway is always a pad. Offers and the active contract become pads when the hangar lists them.
+// Real airports: names, codes, runway headings (degrees, clockwise from north) and runway lengths (metres).
+// Headings and lengths are from memory of public charts, to be checked. The game places them on its own map,
+// around the home runway, at their real relative sizes, and keeps the ground at its own height.
+const AIRPORT_DATA = [
+  { code: 'LAX', name: 'Los Angeles', hdg: 250, len: 3685 },
+  { code: 'SFO', name: 'San Francisco', hdg: 280, len: 3618 },
+  { code: 'JFK', name: 'New York JFK', hdg: 130, len: 4442 },
+  { code: 'LHR', name: 'London Heathrow', hdg: 270, len: 3902 },
+  { code: 'FRA', name: 'Frankfurt', hdg: 70, len: 4000 },
+  { code: 'DXB', name: 'Dubai', hdg: 120, len: 4000 },
+  { code: 'HND', name: 'Tokyo Haneda', hdg: 160, len: 3000 },
+  { code: 'SYD', name: 'Sydney', hdg: 160, len: 3962 },
+  { code: 'SIN', name: 'Singapore Changi', hdg: 20, len: 4000 },
+  { code: 'DEN', name: 'Denver', hdg: 160, len: 3658 },
+  { code: 'ORD', name: "Chicago O'Hare", hdg: 100, len: 2896 },
+  { code: 'HKG', name: 'Hong Kong', hdg: 70, len: 3800 }
+];
+const AIRPORTS = AIRPORT_DATA.map((a, i) => {
+  const ang = i / AIRPORT_DATA.length * Math.PI * 2 + 0.3, d = 1700 + hash2(i, 521) * 1800;
+  return { ...a, x: Math.cos(ang) * d, z: Math.sin(ang) * d, hdgRad: a.hdg * Math.PI / 180 };
+});
 function refreshPads() {
   pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: 0 }];
-  for (const c of [...offers, save.contract]) {
-    if (c) pads.push({ x: c.x, z: c.z, hdg: c.hdg, half: [400, 20], elev: naturalAt(c.x, c.z) });
-  }
+  for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, 20], elev: naturalAt(a.x, a.z) });
 }
 // Height of the ground at x, z, with the pads applied.
 function terrainAt(x, z) {
@@ -876,6 +895,19 @@ function drawGhost() {
   ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
   ctx.fillText('BEST ' + g.km + ' km', s[0] + r + 6, s[1] + 4);
 }
+// airport names, floating above each field
+function drawAirportLabels() {
+  if (!lastCam || !pilot) return;
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(232,255,245,0.95)';
+  for (const ap of AIRPORTS) {
+    const s = wildProject([ap.x, terrainAt(ap.x, ap.z) + 25, ap.z]);
+    if (!s || s[2] > 6000) continue;
+    ctx.fillText(`${ap.code} ${ap.name}`, s[0], s[1]);
+  }
+  ctx.textAlign = 'start';
+}
 function drawWildlife() {
   if (!lastCam || !pilot) return;
   const t = windT;
@@ -1010,7 +1042,8 @@ const SPOTS = [
   { name: 'Runway', x: START.pos[0], z: START.pos[2], hdg: 0, air: false },
   { name: 'Mountain peak', x: peak.x, z: peak.z, hdg: 0.6, air: true },
   { name: 'Lowland lake', x: low.x, z: low.z, hdg: 1.2, air: true },
-  { name: 'Town', x: town.x, z: town.z, hdg: 0, air: true }
+  { name: 'Town', x: town.x, z: town.z, hdg: 0, air: true },
+  ...AIRPORTS.map(a => ({ name: `${a.code} ${a.name}`, x: a.x, z: a.z, hdg: a.hdgRad, air: false, ground: true }))
 ];
 
 // Body axes from yaw/pitch/roll. Forward = +z at zero angles, up = +y, right = +x.
@@ -1154,18 +1187,20 @@ function checkMissions() {
 }
 
 // Contracts: fly to a strip on the map and land there to get paid and earn XP.
-const STRIP_NAMES = ['Harbor Field', 'Ridge Strip', 'Lakeside', 'Mesa Airfield', 'Cedar Valley', 'North Point', 'Glass Flats', 'Pine Hollow'];
+// A job flies from one real airport to another; pay grows with the distance between them.
 function makeOffer() {
-  const a = Math.random() * Math.PI * 2, d = 1500 + Math.random() * 2500, km = d / 1000;
+  const from = Math.floor(Math.random() * AIRPORTS.length);
+  let to = Math.floor(Math.random() * (AIRPORTS.length - 1));
+  if (to >= from) to++;
+  const A = AIRPORTS[from], B = AIRPORTS[to];
   const kind = Math.random() < 0.5 ? 'cargo' : 'passenger';
-  const b = Math.random() * Math.PI * 2, e = 1200 + Math.random() * 1800;   // the drop-off is 1.2 to 3 km from the pick-up
-  const x = Math.cos(a) * d, z = Math.sin(a) * d;
+  const d = Math.hypot(B.x - A.x, B.z - A.z), km = d / 1000;
   const mult = kind === 'passenger' ? 1.3 : 1;
   return {
-    name: STRIP_NAMES[Math.floor(Math.random() * STRIP_NAMES.length)],
+    name: `${A.code} to ${B.code}`,
     kind, stage: 0,
-    x, z, dist: d, hdg: Math.random() * Math.PI * 2,
-    dx: x + Math.cos(b) * e, dz: z + Math.sin(b) * e, dhdg: Math.random() * Math.PI * 2,
+    x: A.x, z: A.z, dist: d, hdg: A.hdgRad,
+    dx: B.x, dz: B.z, dhdg: B.hdgRad,
     pay: Math.round((300 + km * 150) * mult), xp: Math.round(100 + km * 60)
   };
 }
@@ -1563,6 +1598,13 @@ function renderTeleport() {
 function teleportTo(spot) {
   resetPlane(plane.fuel);
   const p = plane;
+  if (spot.ground) {
+    p.pos = [spot.x, terrainAt(spot.x, spot.z) + 0.1, spot.z];
+    p.yaw = spot.hdg;
+    p.onGround = true;
+    toggleTeleport();
+    return;
+  }
   if (spot.air) {
     p.pos = [spot.x, terrainAt(spot.x, spot.z) + 200, spot.z];
     p.yaw = spot.hdg;
@@ -2042,15 +2084,17 @@ function render() {
   };
   for (let z = RUNWAY.z0; z < RUNWAY.z1; z += 150) runwayPiece(z, Math.min(z + 150, RUNWAY.z1));
 
-  // contract destination: a runway with a dashed centre line
-  if (save.contract) {
-    const c = save.contract, s = stripAxes(c), y0 = terrainAt(c.x, c.z) + 0.05;
-    const pt = (a, b) => toCam([c.x + s.ux * a + s.rx * b, y0, c.z + s.uz * a + s.rz * b]);
-    for (let a = -400; a < 400; a += 100) {
-      const a1 = a + 100, mid = a + 50;
-      const d = Math.hypot(c.x + s.ux * mid - eye[0], c.z + s.uz * mid - eye[2]);
+  // real airports: runways with a dashed centre line, drawn when they are near
+  for (const ap of AIRPORTS) {
+    if (len(sub([ap.x, 0, ap.z], eye)) > 6000) continue;
+    const ux = Math.sin(ap.hdgRad), uz = Math.cos(ap.hdgRad);
+    const y0 = terrainAt(ap.x, ap.z) + 0.05, hl = ap.len / 2;
+    const pt = (a, b) => toCam([ap.x + ux * a + uz * b, y0, ap.z + uz * a - ux * b]);
+    for (let a = -hl; a < hl; a += 100) {
+      const a1 = Math.min(a + 100, hl), mid = (a + a1) / 2;
+      const d = Math.hypot(ap.x + ux * mid - eye[0], ap.z + uz * mid - eye[2]);
       const parts = [[[pt(a, -20), pt(a1, -20), pt(a1, 20), pt(a, 20)], rgb(RUNWAY_COL)]];
-      for (let t = -360; t < 400; t += 80) {
+      for (let t = -hl + 40; t + 40 <= hl; t += 80) {
         if (t >= a && t + 40 <= a1) parts.push([[pt(t, -1), pt(t + 40, -1), pt(t + 40, 1), pt(t, 1)], '#e8e8e8']);
       }
       terrainItems.push({ d, draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
@@ -2482,17 +2526,21 @@ function drawMinimap() {
     ctx.stroke();
   }
 
-  // contract runway on the map
-  if (save.contract) {
-    const c = save.contract, s = stripAxes(c);
-    const corner = (a, b) => toMap(c.x + s.ux * a + s.rx * b, c.z + s.uz * a + s.rz * b);
+  // real airports on the map, with their codes
+  ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
+  for (const ap of AIRPORTS) {
+    const ux = Math.sin(ap.hdgRad), uz = Math.cos(ap.hdgRad), hl = ap.len / 2;
+    const corner = (a, b) => toMap(ap.x + ux * a + uz * b, ap.z + uz * a - ux * b);
     ctx.fillStyle = 'rgb(58,60,66)';
     ctx.beginPath();
-    [corner(-400, -20), corner(400, -20), corner(400, 20), corner(-400, 20)].forEach(([x, y], i) => {
+    [corner(-hl, -20), corner(hl, -20), corner(hl, 20), corner(-hl, 20)].forEach(([x, y], i) => {
       i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
     });
     ctx.closePath();
     ctx.fill();
+    const [lx, ly] = toMap(ap.x, ap.z);
+    ctx.fillStyle = 'rgba(232,255,245,0.9)';
+    ctx.fillText(ap.code, lx + 4, ly - 4);
   }
 
   // contract destination marker
@@ -3057,6 +3105,7 @@ function frame(now) {
   drawWildlife();
   drawGhost();
   drawCityLights();
+  drawAirportLabels();
   drawHUD(now);
   drawStatus();
   drawRain(now);
