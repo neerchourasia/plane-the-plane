@@ -930,6 +930,26 @@ function drawAirportLabels() {
   }
   ctx.textAlign = 'start';
 }
+// runway edge lights at night, on the airports near the plane
+function drawRunwayLights() {
+  if (!lastCam || !pilot || daylight() >= 0.45) return;
+  const { eye } = lastCam;
+  ctx.fillStyle = 'rgba(255,250,220,0.95)';
+  for (const ap of AIRPORTS) {
+    if (len(sub([ap.x, 0, ap.z], eye)) > 4000) continue;
+    const ux = Math.sin(ap.hdgRad), uz = Math.cos(ap.hdgRad), hl = ap.len / 2;
+    for (let a = -hl; a <= hl; a += 60) {
+      for (const side of [-22, 22]) {
+        const x = ap.x + ux * a + uz * side, z = ap.z + uz * a - ux * side;
+        const s = wildProject([x, terrainAt(x, z) + 1, z]);
+        if (!s) continue;
+        ctx.beginPath();
+        ctx.arc(s[0], s[1], clamp(F * 1.2 / s[2], 0.8, 2.5), 0, 6.3);
+        ctx.fill();
+      }
+    }
+  }
+}
 function drawWildlife() {
   if (!lastCam || !pilot) return;
   const t = windT;
@@ -3210,6 +3230,7 @@ function frame(now) {
   drawGhost();
   drawCityLights();
   drawAirportLabels();
+  drawRunwayLights();
   drawHUD(now);
   drawStatus();
   drawRain(now);
