@@ -45,7 +45,7 @@
       <p class="err" id="loadErr"></p>
       <div class="wrap">
         <table>
-          <thead><tr><th>Pilot</th><th>Signed up</th><th>Last sign-in</th><th>Level</th><th>Coins</th></tr></thead>
+          <thead><tr><th>Pilot</th><th>Signed up</th><th>Last sign-in</th><th>Level</th><th>Coins</th><th></th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
@@ -87,6 +87,18 @@ async function enter() {
   }
 }
 
+// removes a pilot and their save from the server, after a confirmation
+async function removePilot(name) {
+  if (!confirm(`Delete ${name} and their save? This cannot be undone.`)) return;
+  const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
+  try {
+    await api('/api/delete', { method: 'POST', body: { name }, token });
+    render();
+  } catch (e) {
+    $('loadErr').textContent = e.message || "Couldn't delete the pilot.";
+  }
+}
+
 async function render() {
   const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
   $('loadErr').textContent = '';
@@ -101,6 +113,13 @@ async function render() {
         td.textContent = v;
         tr.append(td);
       }
+      const del = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'ghost';
+      btn.textContent = 'Delete';
+      btn.onclick = () => removePilot(p.name);
+      del.append(btn);
+      tr.append(del);
       rows.append(tr);
     }
     $('count').textContent = `${pilots.length} pilot${pilots.length === 1 ? '' : 's'} signed up.`;

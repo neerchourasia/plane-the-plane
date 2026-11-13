@@ -1,10 +1,11 @@
 import { db, sessionName, DEFAULT_SAVE } from '../lib/accounts.js';
 
-// GET loads the signed-in pilot's save; PUT stores it
+// GET loads the signed-in pilot's save; PUT stores it. A deleted pilot's old sign-in stops working here.
 export default async function handler(req, res) {
   const name = await sessionName(req);
   if (!name) return res.status(401).json({ error: 'Sign in again.' });
   const r = await db();
+  if (!(await r.exists('pilot:' + name))) return res.status(401).json({ error: 'Sign in again.' });
   if (req.method === 'GET') {
     const save = await r.get('save:' + name);
     return res.json({ save: save ? JSON.parse(save) : DEFAULT_SAVE });
