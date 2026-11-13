@@ -69,6 +69,11 @@
 #school .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(560px, 94vw); }
 #school .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #1f2f47; }
 </style>
+<style>
+#races { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.9); z-index: 22; }
+#races .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(620px, 94vw); max-height: 92vh; overflow: auto; }
+#races .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #1f2f47; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -122,6 +127,14 @@
     <button id="schoolClose">Close</button>
   </div>
 </div>
+<div id="races">
+  <div class="card">
+    <h2>Air races</h2>
+    <p class="hint">Fly through every gate in order, as fast as you can. A race starts in the air after a 3 second count. Pays 150 coins, and 100 more for a new personal best.</p>
+    <div id="raceList"></div>
+    <button id="racesClose">Close</button>
+  </div>
+</div>
 <div id="teleport">
   <div class="card">
     <h2>Teleport</h2>
@@ -141,6 +154,7 @@
       <button id="homeLivery">Livery maker</button>
       <button id="homeWorld">World map</button>
       <button id="homeSchool">Flight school</button>
+      <button id="homeRaces">Air races</button>
       <button id="homeAdmin">Admin</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
@@ -1379,6 +1393,136 @@ function drawStorms(dt) {
   }
 }
 
+// ---------- air races: fly through numbered gates in order against the clock
+const RACE_R = 50;
+const RACES = [
+  { id: 'r1', name: 'Home loop', gates: 6, R: 1100, cx: 0, cz: 1500 },
+  { id: 'r2', name: 'River run', gates: 8, R: 1700, cx: -1200, cz: -1000 },
+  { id: 'r3', name: 'Grand tour', gates: 10, R: 2300, cx: 400, cz: 900 }
+].map((r, k) => ({
+  ...r,
+  pts: Array.from({ length: r.gates }, (_, i) => {
+    const a = i / r.gates * Math.PI * 2 + k, x = r.cx + Math.cos(a) * r.R, z = r.cz + Math.sin(a) * r.R * 0.8;
+    const dx = -Math.sin(a) * r.R, dz = Math.cos(a) * r.R * 0.8;
+    return { c: [x, terrainAt(x, z) + 90 + 50 * hash2(i, 70 + k), z], hdg: Math.atan2(dx, dz) };
+  })
+}));
+const fmtTime = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
+let racesOpen = false, raceBoard = null;
+function toggleRaces() {
+  racesOpen = !racesOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('races').style.display = racesOpen ? 'flex' : 'none';
+  if (racesOpen) { renderRaceList(); loadRaceBoard(); }
+}
+async function loadRaceBoard() {
+  try { raceBoard = (await api('/api/board?day=' + today())).races || {}; } catch (e) { raceBoard = null; }
+  if (racesOpen) renderRaceList();
+}
+function renderRaceList() {
+  const box = document.getElementById('raceList');
+  box.innerHTML = '';
+  RACES.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const best = (save.races || {})[r.id];
+    const top = raceBoard && raceBoard[r.id] ? raceBoard[r.id].slice(0, 3).map((e, n) => `${n + 1}. ${e.callsign || e.name} ${fmtTime(e.time)}`).join('   ') : '';
+    const label = document.createElement('span');
+    label.textContent = `${r.name} - ${r.gates} gates - your best ${best ? fmtTime(best) : 'none'}${top ? '   |   ' + top : ''}`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Start';
+    btn.onclick = () => startRace(i);
+    row.append(label, btn);
+    box.append(row);
+  });
+}
+function startRace(i) {
+  const def = RACES[i];
+  if (racesOpen) toggleRaces();
+  hideHome();
+  resetPlane(1);
+  const p = plane, g = def.pts[0], ux = Math.sin(g.hdg), uz = Math.cos(g.hdg);
+  p.onGround = false; p.gear = false; p.throttle = 0.8;
+  p.pos = [g.c[0] - ux * 450, g.c[1], g.c[2] - uz * 450];
+  p.yaw = g.hdg; p.vel = [ux * 60, 0, uz * 60]; p.speed = 60;
+  race = { def, gate: 0, count: 3, t: 0, path: [], pathT: 0 };
+  flashNote('RACE: ' + def.name.toUpperCase());
+}
+// called each step with where the plane was and is: a gate counts when the path crosses its hoop inside the radius
+function checkRace(a, b, dt) {
+  if (!race) return;
+  if (race.count > 0) { race.count -= dt; return; }
+  race.t += dt;
+  race.pathT += dt;
+  if (race.pathT >= 0.5 && race.path.length < 700) { race.pathT = 0; race.path.push(b.map(Math.round)); }
+  if (race.t > 300) { flashNote('RACE TIMED OUT'); race = null; return; }
+  const g = race.def.pts[race.gate], n = [Math.sin(g.hdg), 0, Math.cos(g.hdg)];
+  const sa = dot(sub(a, g.c), n), sb = dot(sub(b, g.c), n);
+  if ((sa < 0) === (sb < 0)) return;
+  const q = sub(add(a, mul(sub(b, a), sa / (sa - sb))), g.c);
+  if (len(q) > RACE_R) return;
+  race.gate++;
+  if (race.gate < race.def.gates) { flashNote(`GATE ${race.gate} OF ${race.def.gates}`); return; }
+  finishRace();
+}
+function finishRace() {
+  const r = race, time = r.t, id = r.def.id;
+  save.races = save.races || {};
+  save.raceGhosts = save.raceGhosts || {};
+  const isBest = !save.races[id] || time < save.races[id];
+  const reward = 150 + (isBest ? 100 : 0);
+  if (isBest) { save.races[id] = Math.round(time * 100) / 100; save.raceGhosts[id] = r.path; }
+  save.coins += reward;
+  save.xp += 80;
+  writeSave();
+  flashNote(`RACE DONE ${fmtTime(time)}${isBest ? ' NEW BEST' : ''} +${reward} COINS`);
+  playTones([[523, 0, 0.15], [659, 0.15, 0.15], [784, 0.3, 0.45]]);
+  race = null;
+}
+function ringAt(c, hdg, r, col, w) {
+  const h = [Math.sin(hdg), 0, Math.cos(hdg)], { eye, cr, cu, cf } = lastCam;
+  ctx.strokeStyle = col; ctx.lineWidth = w;
+  ctx.beginPath();
+  let first = true;
+  for (let i = 0; i <= 28; i++) {
+    const th = i / 28 * Math.PI * 2;
+    const d = sub(add(c, add(mul(h, 0), add(mul([Math.cos(hdg), 0, -Math.sin(hdg)], r * Math.cos(th)), [0, r * Math.sin(th), 0]))), eye);
+    const x = dot(d, cr), y = dot(d, cu), z = dot(d, cf);
+    if (z < NEAR) { first = true; continue; }
+    const sx = W / 2 + x * F / z, sy = H / 2 - y * F / z;
+    if (first) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    first = false;
+  }
+  ctx.stroke();
+}
+function drawRace() {
+  if (!race || !lastCam || !pilot) return;
+  const def = race.def, g = def.pts[race.gate], nxt = def.pts[race.gate + 1];
+  ringAt(g.c, g.hdg, RACE_R, 'rgba(90,255,150,0.95)', 5);
+  if (nxt) ringAt(nxt.c, nxt.hdg, RACE_R, 'rgba(255,255,255,0.4)', 2);
+  // an arrow of dots toward the current gate
+  const p = plane, to = sub(g.c, p.pos), dist = len(to);
+  const s = wildProject(g.c);
+  ctx.fillStyle = 'rgba(190,255,210,0.95)'; ctx.font = 'bold 13px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+  if (s) ctx.fillText(`${(dist / 1000).toFixed(1)} KM`, s[0], s[1] - RACE_R * F / s[2] - 8);
+  const best = (save.races || {})[def.id];
+  ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 16px ui-monospace, Menlo, monospace';
+  ctx.fillText(`RACE ${def.name.toUpperCase()}   GATE ${race.gate + 1}/${def.gates}   ${fmtTime(Math.max(0, race.t))}${best ? '   BEST ' + fmtTime(best) : ''}`, W / 2, 170);
+  if (race.count > 0) { ctx.font = 'bold 64px ui-monospace, Menlo, monospace'; ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillText(String(Math.ceil(race.count)), W / 2, H / 2 - 80); }
+  else if (race.t < 1) { ctx.font = 'bold 54px ui-monospace, Menlo, monospace'; ctx.fillStyle = 'rgba(90,255,150,0.95)'; ctx.fillText('GO', W / 2, H / 2 - 80); }
+  // the ghost of your best run
+  const gh = (save.raceGhosts || {})[def.id];
+  if (gh && race.count <= 0) {
+    const q = gh[Math.floor(race.t / 0.5)];
+    const gs = q && wildProject([q[0], q[1], q[2]]);
+    if (gs) {
+      ctx.fillStyle = 'rgba(120,220,255,0.55)'; ctx.beginPath(); ctx.arc(gs[0], gs[1], clamp(F * 4 / gs[2], 3, 10), 0, 6.3); ctx.fill();
+      ctx.fillStyle = 'rgba(220,245,255,0.95)'; ctx.font = '12px ui-monospace, Menlo, monospace'; ctx.fillText('BEST RUN', gs[0], gs[1] - 14);
+    }
+  }
+  ctx.textAlign = 'start';
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -1654,9 +1798,11 @@ let plane;
 let view = 0; // 0 = chase, 1 = cockpit, 2 = side
 const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE'];
 let lightsOn = true, soundOn = true;
+let race = null;   // the air race in progress, if any
 let cruise = false;   // fast-forward through a long-haul job's real distance
 function resetPlane(fuel = 1) {
   cruise = false;
+  race = null;
   plane = {
     model: MODELS[save.selected], lastReward: 0,
     pos: [...START.pos], vel: [0, 0, 0],
@@ -1723,6 +1869,7 @@ addEventListener('keydown', e => {
     if (e.code === 'Escape' || e.code === 'KeyT') toggleTeleport();
     return;
   }
+  if (racesOpen && e.code === 'Escape') return toggleRaces();
   if (schoolOpen && e.code === 'Escape') return toggleSchool();
   if (worldOpen && (e.code === 'Escape' || e.code === 'KeyU')) return toggleWorld();
   if (e.code === 'KeyU' && !e.repeat && pilot) return toggleWorld();
@@ -2414,6 +2561,7 @@ function crash(msg) {
   plane.crashed = true;
   plane.crashMsg = msg;
   cruise = false;
+  race = null;
   addWear(25);
   startReplay();
   logFlight('Crashed: ' + msg);
@@ -2448,7 +2596,7 @@ function daylight() {
 
 function update(dt) {
   const p = plane;
-  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen) return;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen) return;
   const m = p.model;
   windT += dt;
   fogEnd = FOG_END - fogLevel() * 2800;
@@ -2557,6 +2705,7 @@ function update(dt) {
   p.pos = add(p.pos, mul(v, dt));
   checkRings(before, p.pos);
   checkWildlife(p.pos, dt);
+  checkRace(before, p.pos, dt);
   // engine failure: now and then the engine quits in the air; K restarts it
   if (!p.engineOut && !p.onGround && !cruise && Math.random() < dt / 400 * (1 + wearOf(m) / 25)) {
     p.engineOut = true;
@@ -3973,6 +4122,8 @@ document.getElementById('homeAdmin').onclick = () => { location.href = 'admin.ht
 document.getElementById('homeSwitch').onclick = signOut;
 document.getElementById('worldClose').onclick = toggleWorld;
 document.getElementById('schoolClose').onclick = toggleSchool;
+document.getElementById('racesClose').onclick = toggleRaces;
+document.getElementById('homeRaces').onclick = () => { hideHome(); toggleRaces(); };
 document.getElementById('homeSchool').onclick = () => { hideHome(); toggleSchool(); };
 document.getElementById('homeWorld').onclick = () => { hideHome(); toggleWorld(); };
 document.getElementById('callsign').onchange = e => { save.callsign = e.target.value.trim().slice(0, 12); writeSave(); };
@@ -4022,6 +4173,7 @@ function frame(now) {
   drawRings();
   drawWildlife();
   drawGhost();
+  drawRace();
   drawPilots();
   drawCityLights();
   drawAirportLabels();
