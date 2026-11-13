@@ -64,6 +64,11 @@
 #world canvas { display: block; max-width: 100%; height: auto; margin: 0 auto; cursor: pointer; border-radius: 6px; }
 #world button { margin-top: 8px; }
 </style>
+<style>
+#school { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.9); z-index: 22; }
+#school .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(560px, 94vw); }
+#school .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid #1f2f47; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -109,6 +114,14 @@
     <button id="worldClose">Close</button>
   </div>
 </div>
+<div id="school">
+  <div class="card">
+    <h2>Flight school</h2>
+    <p class="hint">Short guided lessons. Follow the steps shown at the top of the screen. Each lesson pays 150 coins the first time you pass it.</p>
+    <div id="lessons"></div>
+    <button id="schoolClose">Close</button>
+  </div>
+</div>
 <div id="teleport">
   <div class="card">
     <h2>Teleport</h2>
@@ -127,6 +140,7 @@
       <button id="homeHangar">Hangar</button>
       <button id="homeLivery">Livery maker</button>
       <button id="homeWorld">World map</button>
+      <button id="homeSchool">Flight school</button>
       <button id="homeAdmin">Admin</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
@@ -1057,6 +1071,121 @@ function drawRadio() {
   ctx.textAlign = 'start';
 }
 
+// ---------- flight school: guided lessons that check each step for you
+const LESSONS = [
+  {
+    id: 'takeoff', name: 'Takeoff',
+    setup: () => { resetPlane(1); },
+    steps: [
+      { text: 'Push the throttle to full (press 9)', ok: p => p.throttle >= 0.9 },
+      { text: 'Roll down the runway until you pass stall speed', ok: p => p.speed >= stallSpeed(p) * 1.1 },
+      { text: 'Pull back (S) to lift off', ok: p => !p.onGround },
+      { text: 'Climb to 100 m', ok: p => p.pos[1] >= 100 },
+      { text: 'Raise the landing gear (G)', ok: p => !p.gear && !p.onGround }
+    ]
+  },
+  {
+    id: 'turn', name: 'A level turn',
+    setup: l => {
+      resetPlane(1);
+      const p = plane;
+      p.onGround = false; p.gear = false; p.pos = [0, 400, 0]; p.yaw = 0; p.vel = [0, 0, 60]; p.speed = 60; p.throttle = 0.6;
+      l.startYaw = 0; l.startAlt = 400;
+    },
+    steps: [
+      { text: 'Bank the wings (A or D)', ok: p => Math.abs(p.roll) > 0.25 },
+      { text: 'Turn through 90 degrees', ok: (p, l) => Math.abs(wrapPi(p.yaw - l.startYaw)) >= 1.4 },
+      { text: 'Level the wings (release A and D)', ok: p => Math.abs(p.roll) < 0.08 },
+      { text: 'Be within 60 m of your starting height', ok: (p, l) => Math.abs(p.pos[1] - l.startAlt) < 60 }
+    ]
+  },
+  {
+    id: 'landing', name: 'A landing',
+    setup: l => {
+      resetPlane(1);
+      const p = plane;
+      // start 1.5 km out, clear of any hill on the way in
+      let ridge = 0;
+      for (let z = -1500; z <= -200; z += 100) ridge = Math.max(ridge, terrainAt(0, z));
+      p.onGround = false; p.gear = false; p.pos = [0, Math.max(ridge + 90, 110), -1500]; p.yaw = 0; p.vel = [0, 0, 45]; p.speed = 45; p.throttle = 0.3;
+      l.landed = undefined;
+    },
+    steps: [
+      { text: 'Lower the landing gear (G)', ok: p => p.gear },
+      { text: 'Line up with the runway', ok: p => Math.abs(p.pos[0]) < 40 && Math.abs(wrapPi(p.yaw)) < 0.2 },
+      { text: 'Touch down on the runway (under 3.5 m/s sink)', ok: (p, l) => l.landed !== undefined && l.landed < 3.5 && Math.abs(p.pos[0]) < 30 && p.pos[2] > -200 && p.pos[2] < RUNWAY.z1 }
+    ]
+  }
+];
+let lesson = null, schoolOpen = false;
+function toggleSchool() {
+  schoolOpen = !schoolOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('school').style.display = schoolOpen ? 'flex' : 'none';
+  if (schoolOpen) renderLessons();
+}
+function renderLessons() {
+  const box = document.getElementById('lessons');
+  box.innerHTML = '';
+  LESSONS.forEach((l, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${i + 1}. ${l.name}${(save.lessons || []).includes(l.id) ? '  (passed)' : ''}`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Start';
+    btn.onclick = () => startLesson(i);
+    row.append(label, btn);
+    box.append(row);
+  });
+}
+function startLesson(i) {
+  const def = LESSONS[i];
+  if (schoolOpen) toggleSchool();
+  hideHome();
+  lesson = { i, step: 0 };
+  def.setup(lesson);
+  refreshPads();
+  flashNote('LESSON: ' + def.name.toUpperCase());
+}
+function checkLesson() {
+  if (!lesson || !pilot) return;
+  const def = LESSONS[lesson.i], p = plane;
+  if (p.crashed) { flashNote('LESSON FAILED: PRESS R AND TRY AGAIN'); lesson = null; return; }
+  while (lesson && def.steps[lesson.step] && def.steps[lesson.step].ok(p, lesson)) lesson.step++;
+  if (lesson && lesson.landed !== undefined && lesson.landed >= 3.5 && lesson.step === def.steps.length - 1) {
+    flashNote('TOO HARD A LANDING: START THE LESSON AGAIN'); lesson = null; return;
+  }
+  if (lesson && lesson.step >= def.steps.length) {
+    save.lessons = save.lessons || [];
+    if (!save.lessons.includes(def.id)) {
+      save.lessons.push(def.id);
+      save.coins += 150;
+      save.xp += 60;
+      writeSave();
+      flashNote(`LESSON PASSED: ${def.name.toUpperCase()} +150 COINS`);
+    } else {
+      flashNote(`LESSON PASSED: ${def.name.toUpperCase()}`);
+    }
+    playTones([[523, 0, 0.15], [659, 0.15, 0.15], [784, 0.3, 0.45]]);
+    lesson = null;
+  }
+}
+function drawLesson() {
+  if (!lesson || homeOpen) return;
+  const def = LESSONS[lesson.i], step = def.steps[lesson.step];
+  if (!step) return;
+  const text = `LESSON ${lesson.i + 1} - ${def.name.toUpperCase()}   STEP ${lesson.step + 1} OF ${def.steps.length}: ${step.text}`;
+  ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+  const w = ctx.measureText(text).width + 24;
+  ctx.fillStyle = 'rgba(40,28,6,0.82)';
+  ctx.fillRect(W / 2 - w / 2, 116, w, 26);
+  ctx.fillStyle = '#ffd23f';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, W / 2, 123);
+  ctx.textAlign = 'start';
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -1328,6 +1457,7 @@ addEventListener('keydown', e => {
     if (e.code === 'Escape' || e.code === 'KeyT') toggleTeleport();
     return;
   }
+  if (schoolOpen && e.code === 'Escape') return toggleSchool();
   if (worldOpen && (e.code === 'Escape' || e.code === 'KeyU')) return toggleWorld();
   if (e.code === 'KeyU' && !e.repeat && pilot) return toggleWorld();
   if (e.code === 'Escape') return showHome();   // in the air or on the ground, Esc goes back to the home screen
@@ -1375,6 +1505,7 @@ function writeSave() {
 }
 function awardLanding(impact) {
   const p = plane, c = save.contract;
+  if (lesson) lesson.landed = impact;
   save.landings = (save.landings || 0) + 1;
   bumpDaily('landings');
   // a cargo or passenger job: the first landing picks up, the second (at the drop-off) pays
@@ -2033,7 +2164,7 @@ function daylight() {
 
 function update(dt) {
   const p = plane;
-  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen) return;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen) return;
   const m = p.model;
   windT += dt;
   fogEnd = FOG_END - fogLevel() * 2800;
@@ -2615,6 +2746,97 @@ function render() {
 function panel(x, y, w, h) {
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.fillRect(x, y, w, h);
+}
+
+// ---------- cockpit view: an instrument panel with working gauges (speed, attitude, altitude, heading, climb rate)
+function dialFace(cx, cy, r) {
+  ctx.fillStyle = '#0b1016';
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.3); ctx.fill();
+  ctx.strokeStyle = '#7b8696'; ctx.lineWidth = 3; ctx.stroke();
+}
+// a needle from the centre; angle 0 points up and grows clockwise
+function dialNeedle(cx, cy, len, ang, col, w) {
+  ctx.strokeStyle = col; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.sin(ang) * len, cy - Math.cos(ang) * len); ctx.stroke();
+}
+function dialLabel(cx, cy, r, text) {
+  ctx.fillStyle = '#9db2c6'; ctx.font = `${Math.max(9, Math.round(r * 0.2))}px ui-monospace, Menlo, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx, cy);
+}
+function drawCockpitPanel() {
+  if (view !== 1 || !pilot) return;
+  const p = plane, r = Math.min(H * 0.11, W / 14), gap = r * 2.35, cy = H - r - 18, cx0 = W / 2 - gap * 2;
+  const pw = gap * 5.4, px = W / 2 - pw / 2, py = cy - r - 14, ph = r * 2 + 40;
+  ctx.fillStyle = 'rgba(16,20,26,0.94)'; ctx.fillRect(px, py, pw, ph);
+  ctx.strokeStyle = '#3a4350'; ctx.lineWidth = 2; ctx.strokeRect(px, py, pw, ph);
+
+  // airspeed, in knots; the scale ends a little above the plane's top speed
+  const kt = p.speed * 1.944, maxKt = Math.max(100, Math.ceil(Math.sqrt(p.model.thrust / p.model.drag) * 1.944 * 1.1 / 50) * 50);
+  dialFace(cx0, cy, r);
+  for (let k = 0; k <= 10; k++) {
+    const a = -2.2 + 4.4 * k / 10;
+    ctx.strokeStyle = '#c9d4df'; ctx.lineWidth = k % 2 ? 1 : 2;
+    ctx.beginPath(); ctx.moveTo(cx0 + Math.sin(a) * r * 0.82, cy - Math.cos(a) * r * 0.82); ctx.lineTo(cx0 + Math.sin(a) * r * 0.95, cy - Math.cos(a) * r * 0.95); ctx.stroke();
+    if (k % 2 === 0) dialLabel(cx0 + Math.sin(a) * r * 0.66, cy - Math.cos(a) * r * 0.66, r * 0.8, String(Math.round(maxKt * k / 10)));
+  }
+  dialNeedle(cx0, cy, r * 0.85, -2.2 + 4.4 * clamp(kt / maxKt, 0, 1), '#ffd23f', 3);
+  dialLabel(cx0, cy + r * 0.45, r, 'KT');
+
+  // attitude indicator: sky and ground turn with the roll and slide with the pitch
+  const ax = cx0 + gap;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(ax, cy, r, 0, 6.3); ctx.clip();
+  ctx.translate(ax, cy);
+  ctx.rotate(p.roll);
+  ctx.translate(0, p.pitch * RAD2DEG * r / 35);
+  ctx.fillStyle = '#3f86c9'; ctx.fillRect(-r * 2, -r * 3, r * 4, r * 3);
+  ctx.fillStyle = '#8a5a2b'; ctx.fillRect(-r * 2, 0, r * 4, r * 3);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-r * 2, 0); ctx.lineTo(r * 2, 0); ctx.stroke();
+  for (const d of [-20, -10, 10, 20]) { const y = -d * r / 35; ctx.beginPath(); ctx.moveTo(-r * 0.25, y); ctx.lineTo(r * 0.25, y); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(ax - r * 0.55, cy); ctx.lineTo(ax - r * 0.15, cy); ctx.lineTo(ax, cy + r * 0.12); ctx.lineTo(ax + r * 0.15, cy); ctx.lineTo(ax + r * 0.55, cy); ctx.stroke();
+  ctx.strokeStyle = '#7b8696'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(ax, cy, r, 0, 6.3); ctx.stroke();
+
+  // altimeter, in feet: the long needle turns once per 1000 ft, the short one once per 10000 ft
+  const lx = cx0 + gap * 2, ft = p.pos[1] * 3.281;
+  dialFace(lx, cy, r);
+  for (let k = 0; k < 10; k++) {
+    const a = k / 10 * 6.2832;
+    ctx.strokeStyle = '#c9d4df'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(lx + Math.sin(a) * r * 0.82, cy - Math.cos(a) * r * 0.82); ctx.lineTo(lx + Math.sin(a) * r * 0.95, cy - Math.cos(a) * r * 0.95); ctx.stroke();
+    dialLabel(lx + Math.sin(a) * r * 0.66, cy - Math.cos(a) * r * 0.66, r * 0.8, String(k));
+  }
+  dialNeedle(lx, cy, r * 0.55, (ft % 10000) / 10000 * 6.2832, '#e8eef5', 5);
+  dialNeedle(lx, cy, r * 0.85, (ft % 1000) / 1000 * 6.2832, '#ffd23f', 3);
+  dialLabel(lx, cy + r * 0.5, r, Math.round(ft) + ' FT');
+
+  // heading: the compass card turns under a fixed marker
+  const hx = cx0 + gap * 3, hdg = ((p.yaw * RAD2DEG) % 360 + 360) % 360;
+  dialFace(hx, cy, r);
+  ctx.save();
+  ctx.translate(hx, cy); ctx.rotate(-p.yaw);
+  ctx.fillStyle = '#e8eef5'; ctx.font = `bold ${Math.round(r * 0.28)}px ui-monospace, Menlo, monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ['N', 'E', 'S', 'W'].forEach((c, i) => ctx.fillText(c, Math.sin(i * Math.PI / 2) * r * 0.68, -Math.cos(i * Math.PI / 2) * r * 0.68));
+  ctx.strokeStyle = '#c9d4df'; ctx.lineWidth = 2;
+  for (let k = 0; k < 36; k++) { const a = k / 36 * 6.2832, l = k % 3 === 0 ? 0.86 : 0.91; ctx.beginPath(); ctx.moveTo(Math.sin(a) * r * l, -Math.cos(a) * r * l); ctx.lineTo(Math.sin(a) * r * 0.97, -Math.cos(a) * r * 0.97); ctx.stroke(); }
+  ctx.restore();
+  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.moveTo(hx, cy - r * 0.98); ctx.lineTo(hx - 6, cy - r * 0.84); ctx.lineTo(hx + 6, cy - r * 0.84); ctx.fill();
+  dialLabel(hx, cy, r, String(Math.round(hdg)).padStart(3, '0') + '°');
+
+  // vertical speed: zero at the left, climb turns the needle up, descent turns it down
+  const vx = cx0 + gap * 4, vs = p.vel[1] * 196.85;
+  dialFace(vx, cy, r);
+  for (let k = -4; k <= 4; k++) {
+    const a = -1.5708 + k / 4 * 2.6;
+    ctx.strokeStyle = '#c9d4df'; ctx.lineWidth = k % 2 ? 1 : 2;
+    ctx.beginPath(); ctx.moveTo(vx + Math.sin(a) * r * 0.82, cy - Math.cos(a) * r * 0.82); ctx.lineTo(vx + Math.sin(a) * r * 0.95, cy - Math.cos(a) * r * 0.95); ctx.stroke();
+  }
+  dialNeedle(vx, cy, r * 0.85, -1.5708 + clamp(vs / 2000, -1, 1) * 2.6, '#ffd23f', 3);
+  dialLabel(vx, cy + r * 0.45, r, 'V/S ' + Math.round(vs / 10) * 10);
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
 }
 
 function drawGunsight() {
@@ -3428,6 +3650,8 @@ document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery
 document.getElementById('homeAdmin').onclick = () => { location.href = 'admin.html'; };
 document.getElementById('homeSwitch').onclick = signOut;
 document.getElementById('worldClose').onclick = toggleWorld;
+document.getElementById('schoolClose').onclick = toggleSchool;
+document.getElementById('homeSchool').onclick = () => { hideHome(); toggleSchool(); };
 document.getElementById('homeWorld').onclick = () => { hideHome(); toggleWorld(); };
 document.getElementById('callsign').onchange = e => { save.callsign = e.target.value.trim().slice(0, 12); writeSave(); };
 document.getElementById('openAdmin').onclick = () => { location.href = 'admin.html'; };
@@ -3472,12 +3696,14 @@ function frame(now) {
   ctx = fxCtx;
   fxCtx.clearRect(0, 0, W, H);
   drawGunsight();
+  drawCockpitPanel();
   drawRings();
   drawWildlife();
   drawGhost();
   drawCityLights();
   drawAirportLabels();
   drawRadio();
+  drawLesson();
   drawRunwayLights();
   drawHUD(now);
   drawStatus();
@@ -3488,6 +3714,7 @@ function frame(now) {
   checkMissions();
   checkDaily();
   updateTower();
+  checkLesson();
   if (snapRequested) { snapRequested = false; takePhoto(); }
   requestAnimationFrame(frame);
 }
