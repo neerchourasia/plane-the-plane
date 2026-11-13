@@ -1624,8 +1624,9 @@ function logFlight(result) {
 let windT = 0;
 let wind = [0, 0];
 
-// Local time of day: one game hour per real minute, starting at 09:00.
-let simHour = 9;
+// Local time of day from the device clock, so the sun and night match real life.
+const realHour = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
+let simHour = realHour();
 // 0.35 at night (moonlit, so the ground stays readable) up to 1 at midday, so the sky and ground darken smoothly.
 function daylight() {
   return clamp(Math.sin((simHour - 6) / 12 * Math.PI) * 1.5, 0.35, 1);
@@ -1639,7 +1640,7 @@ function update(dt) {
   fogEnd = FOG_END - fogLevel() * 2800;
   const ws = 3 + 2 * Math.sin(windT / 40), wd = 0.5 + 0.3 * Math.sin(windT / 90);
   wind = [Math.sin(wd) * ws, Math.cos(wd) * ws];
-  simHour = (simHour + dt / 60) % 24;
+  simHour = realHour();
 
   const auth = Math.min(1, 0.3 + p.speed / 45);   // controls get stronger with airspeed
   let pitchIn = (down('KeyS') || down('ArrowUp') ? 1 : 0) - (down('KeyW') || down('ArrowDown') ? 1 : 0);
