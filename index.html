@@ -1238,6 +1238,50 @@ function nearField(x, z) {
   return AIRPORTS.some(a => Math.hypot(x - a.x, z - a.z) < a.len / 2 + 450);
 }
 
+// ---------- live pilots: other signed-in pilots show up as moving markers. Positions come from the server every 3 s
+// and are carried forward at the pilot's speed in between.
+let others = [];
+async function syncPresence() {
+  const token = storeGet(TOKEN_KEY);
+  if (!pilot || !token || document.hidden || homeOpen) return;
+  const p = plane;
+  try {
+    const data = await api('/api/presence', {
+      method: 'POST', token,
+      body: { x: Math.round(p.pos[0]), y: Math.round(p.pos[1]), z: Math.round(p.pos[2]), yaw: +p.yaw.toFixed(2), v: Math.round(p.speed), plane: p.model.name, callsign: save.callsign || '' }
+    });
+    const t0 = performance.now();
+    others = (data.others || []).map(o => ({ ...o, t0 }));
+  } catch (e) {
+    others = [];   // offline, or the server is not reachable: nobody else to show
+  }
+}
+setInterval(syncPresence, 3000);
+function drawPilots() {
+  if (!lastCam || !pilot || !others.length) return;
+  const now = performance.now();
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  for (const o of others) {
+    const dt = Math.min(15, (now - o.t0) / 1000), fx = Math.sin(o.yaw), fz = Math.cos(o.yaw);
+    const pos = [o.x + fx * o.v * dt, o.y, o.z + fz * o.v * dt];
+    const s = wildProject(pos);
+    if (!s || s[2] > 8000) continue;
+    const nose = wildProject([pos[0] + fx * 10, pos[1], pos[2] + fz * 10]), tail = wildProject([pos[0] - fx * 10, pos[1], pos[2] - fz * 10]);
+    const wl = wildProject([pos[0] - fz * 9, pos[1], pos[2] + fx * 9]), wr = wildProject([pos[0] + fz * 9, pos[1], pos[2] - fx * 9]);
+    ctx.strokeStyle = 'rgba(120,230,255,0.95)';
+    ctx.lineWidth = clamp(F * 2.5 / s[2], 1.5, 5);
+    if (nose && tail) { ctx.beginPath(); ctx.moveTo(tail[0], tail[1]); ctx.lineTo(nose[0], nose[1]); ctx.stroke(); }
+    if (wl && wr) { ctx.beginPath(); ctx.moveTo(wl[0], wl[1]); ctx.lineTo(wr[0], wr[1]); ctx.stroke(); }
+    ctx.fillStyle = 'rgba(190,245,255,0.95)';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${o.callsign || o.name} · ${o.plane}`, s[0], s[1] - 14);
+  }
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#8fb3c9';
+  ctx.fillText(`PILOTS ONLINE ${others.length + 1}`, W - 16, 34);
+  ctx.textAlign = 'start';
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -3802,6 +3846,7 @@ function frame(now) {
   drawRings();
   drawWildlife();
   drawGhost();
+  drawPilots();
   drawCityLights();
   drawAirportLabels();
   drawRadio();
