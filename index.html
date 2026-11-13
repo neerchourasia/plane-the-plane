@@ -189,6 +189,8 @@
     <div id="missions"></div>
     <h3>Repairs</h3>
     <div id="repairs"></div>
+    <h3>Airline</h3>
+    <div id="airline"></div>
     <h3>Achievements</h3>
     <div id="badges"></div>
     <h3>Daily missions</h3>
@@ -1523,6 +1525,86 @@ function drawRace() {
   ctx.textAlign = 'start';
 }
 
+// ---------- airline career: put planes you own on routes between the real airports; they earn while you are away
+const CAPACITY = { Trainer: 2, 'Cessna 172': 3, 'Sport Jet': 8, 'Embraer E175': 76, '737': 160, Airliner: 180, '757': 200, '767': 220, '787': 240, A330: 250, A350: 300, '777X': 350, '747': 400, A380: 500, 'F-16': 0, Concorde: 100 };
+const FLEET_CAP_HOURS = 8;   // a plane earns for at most 8 hours before you collect
+const fleetSlots = () => 1 + Math.floor(careerLevel() / 2);
+const airportBy = code => AIRPORTS.find(a => a.code === code);
+function routeKm(from, to) { return haversineKm(airportBy(from), airportBy(to)); }
+// coins per hour: passenger-kilometres at 80% full, a little more on long routes, never less than 3
+function fleetPerHour(f) {
+  const m = MODELS[f.model], kmh = Math.sqrt(m.thrust / m.drag) * 3.6 * 0.85, km = routeKm(f.from, f.to);
+  return Math.max(3, Math.round((CAPACITY[m.name] || 0) * kmh * 0.0018 * 0.8 * (1 + km / 20000)));
+}
+const fleetAccrued = f => Math.min(FLEET_CAP_HOURS, (Date.now() - f.since) / 3600000) * fleetPerHour(f);
+function collectFleet() {
+  const total = Math.floor((save.fleet || []).reduce((a, f) => a + fleetAccrued(f), 0));
+  if (total <= 0) return;
+  save.coins += total;
+  save.xp += Math.round(total / 10);
+  for (const f of save.fleet) f.since = Date.now();
+  writeSave();
+  flashNote(`AIRLINE INCOME +${total} COINS`);
+  renderHangar();
+}
+function renderAirline() {
+  const box = document.getElementById('airline');
+  if (!box || !pilot) return;
+  box.innerHTML = '';
+  const fleet = save.fleet = save.fleet || [];
+  const note = document.createElement('p');
+  note.className = 'hint';
+  note.textContent = `Planes on routes: ${fleet.length} of ${fleetSlots()} (more slots as your career level grows). Each earns for up to ${FLEET_CAP_HOURS} hours before you collect.`;
+  box.append(note);
+  for (const [idx, f] of fleet.entries()) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${MODELS[f.model].name}: ${f.from} to ${f.to} (${Math.round(routeKm(f.from, f.to)).toLocaleString()} km) - ${fleetPerHour(f)} coins/hour, ${Math.floor(fleetAccrued(f))} waiting`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Remove';
+    btn.onclick = () => { fleet.splice(idx, 1); writeSave(); renderHangar(); };
+    row.append(label, btn);
+    box.append(row);
+  }
+  const total = Math.floor(fleet.reduce((a, f) => a + fleetAccrued(f), 0));
+  const collect = document.createElement('button');
+  collect.textContent = `Collect ${total} coins`;
+  collect.disabled = total <= 0;
+  collect.onclick = collectFleet;
+  box.append(collect);
+  // add a plane to a route
+  const free = save.owned.filter(i => !fleet.some(f => f.model === i) && (CAPACITY[MODELS[i].name] || 0) > 0);
+  if (fleet.length < fleetSlots() && free.length) {
+    const mk = (opts, label) => {
+      const sel = document.createElement('select');
+      for (const [v, t] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); }
+      sel.title = label;
+      return sel;
+    };
+    const planeSel = mk(free.map(i => [i, MODELS[i].name]), 'Plane');
+    const fromSel = mk(AIRPORTS.map(a => [a.code, a.code + ' ' + a.name]), 'From');
+    const toSel = mk(AIRPORTS.map(a => [a.code, a.code + ' ' + a.name]), 'To');
+    toSel.selectedIndex = 1;
+    const add = document.createElement('button');
+    add.textContent = 'Put on route';
+    add.onclick = () => {
+      if (fromSel.value === toSel.value) { flashNote('PICK TWO DIFFERENT AIRPORTS'); return; }
+      fleet.push({ model: Number(planeSel.value), from: fromSel.value, to: toSel.value, since: Date.now() });
+      writeSave();
+      renderHangar();
+    };
+    const wrap = document.createElement('div');
+    wrap.append(planeSel, fromSel, toSel, add);
+    box.append(wrap);
+  } else if (!free.length) {
+    const none = document.createElement('p');
+    none.className = 'hint';
+    none.textContent = 'Buy another passenger plane to put it on a route.';
+    box.append(none);
+  }
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -2047,6 +2129,7 @@ function renderExtras() {
   renderDaily();
   renderBadges();
   renderRepairs();
+  renderAirline();
   const missions = document.getElementById('missions');
   missions.innerHTML = '';
   for (const m of MISSIONS) {
