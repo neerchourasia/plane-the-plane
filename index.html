@@ -1319,6 +1319,66 @@ function renderRepairs() {
   }
 }
 
+// ---------- storms and icing: thunderstorm cells drift across the map; high up in wet or stormy air ice builds on the wings
+const STORMS = [0, 1, 2].map(i => ({ x: (hash2(i, 51) - 0.5) * 8000, z: (hash2(i, 52) - 0.5) * 8000, vx: (hash2(i, 53) - 0.5) * 8, vz: (hash2(i, 54) - 0.5) * 8, r: 900 + 500 * hash2(i, 55) }));
+function stormPos(st, t) {
+  const w = 12000;
+  return [((st.x + st.vx * t + 6000) % w + w) % w - 6000, ((st.z + st.vz * t + 6000) % w + w) % w - 6000];
+}
+// 0 outside every storm, up to 1 at the middle of one
+function stormStrength(pos) {
+  if (pos[1] > 3500) return 0;
+  let m = 0;
+  for (const st of STORMS) {
+    const [x, z] = stormPos(st, windT);
+    m = Math.max(m, clamp(1 - Math.hypot(pos[0] - x, pos[2] - z) / st.r, 0, 1));
+  }
+  return m;
+}
+let lightning = 0;
+function updateStorm(p, dt) {
+  const st = stormStrength(p.pos);
+  p.stormLevel = st;
+  if (st > 0.05) {
+    p.roll += (Math.random() - 0.5) * 1.6 * st * dt;
+    p.pitch += (Math.random() - 0.5) * 0.9 * st * dt;
+    p.vel[1] += (Math.random() - 0.5) * 26 * st * dt;
+    if (Math.random() < dt * 0.4 * st) { lightning = 1; playBurst(0.9, 0.12 + 0.3 * st, 260); }
+  }
+  // icing builds above 2500 m in rain or storm air and melts below 1500 m
+  if (p.pos[1] > 2500 && (rainLevel() > 0.15 || st > 0.2)) p.ice = Math.min(1, (p.ice || 0) + dt / 60);
+  else if (p.pos[1] < 1500) p.ice = Math.max(0, (p.ice || 0) - dt / 30);
+}
+function drawStorms(dt) {
+  if (!lastCam || !pilot) return;
+  const p = plane;
+  for (const st of STORMS) {
+    const [x, z] = stormPos(st, windT), s = wildProject([x, 500, z]);
+    if (!s || s[2] > 9000) continue;
+    const rpx = F * st.r / s[2];
+    if (rpx > W * 3) continue;
+    for (let k = 0; k < 5; k++) {
+      ctx.fillStyle = `rgba(${36 + k * 9},${40 + k * 9},${54 + k * 9},0.24)`;
+      ctx.beginPath();
+      ctx.ellipse(s[0] + (k - 2) * 0.22 * rpx, s[1] - k * rpx * 0.12, rpx * (1 - k * 0.08), rpx * 0.55 * (1 - k * 0.05), 0, 0, 6.3);
+      ctx.fill();
+    }
+    // a warning when one is ahead and close
+    const dx = x - p.pos[0], dz = z - p.pos[2], d = Math.hypot(dx, dz);
+    if (d < 3500 && (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / d > 0.6 && p.pos[1] < 3500) {
+      ctx.fillStyle = '#ff9f43'; ctx.font = 'bold 14px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(`STORM AHEAD ${(d / 1000).toFixed(1)} KM`, W / 2, 152);
+      ctx.textAlign = 'start';
+    }
+  }
+  const inside = p.stormLevel || 0;
+  if (inside > 0.15) { ctx.fillStyle = `rgba(10,12,20,${(0.35 * inside).toFixed(2)})`; ctx.fillRect(0, 0, W, H); }
+  if (lightning > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${(lightning * 0.5).toFixed(2)})`; ctx.fillRect(0, 0, W, H);
+    lightning = Math.max(0, lightning - dt * 3);
+  }
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -2328,7 +2388,7 @@ function teleportTo(spot) {
 
 // Flaps add lift and drag and lower the stall speed. The gear adds drag.
 const flapFrac = p => p.flaps / 3;
-const stallSpeed = p => p.model.stall * (1 - 0.15 * flapFrac(p));
+const stallSpeed = p => p.model.stall * (1 - 0.15 * flapFrac(p)) * (1 + 0.15 * (p.ice || 0));
 // Turns any angle into the range -PI to PI.
 const wrapPi = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 
@@ -2476,7 +2536,7 @@ function update(dt) {
   if (s0 > 0) v = sub(v, mul(norm(v), dragK * s0 * s0 * dt));
 
   // lift along the wing normal, only above stall speed (flaps raise lift and lower the stall speed)
-  const lift = clamp((s0 - stallSpeed(p)) / 35, 0, 1) * LIFT_MAX * (1 + 0.25 * flapFrac(p));
+  const lift = clamp((s0 - stallSpeed(p)) / 35, 0, 1) * LIFT_MAX * (1 + 0.25 * flapFrac(p)) * (1 - 0.25 * (p.ice || 0));
   v = add(v, mul(ax.up, lift * dt));
 
   // gravity
@@ -2525,6 +2585,7 @@ function update(dt) {
     p.pitch += (Math.random() - 0.5) * 0.2 * turb * dt;
     p.flight.dist += p.speed * dt;
     p.flight.secs += dt;
+    updateStorm(p, dt);
     // cruise: the real distance runs at a speed-up while the plane keeps flying; the tank is assumed big enough
     if (cruise) {
       const c = save.contract;
@@ -3465,6 +3526,7 @@ function drawStatus() {
     ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
     ...(p.leak ? [['FUEL LEAK', 'YES', '#ff6b6b']] : []),
     ...(p.engineOut ? [['ENGINE', 'OUT', '#ff6b6b']] : []),
+    ...((p.ice || 0) > 0.05 ? [['ICING', Math.round(p.ice * 100) + '%', '#9fd8ff']] : []),
     ...(wearOf() >= 5 ? [['WEAR', Math.round(wearOf()) + '%', wearOf() > 50 ? '#ff6b6b' : '#ff9f43']] : []),
     ['FLAPS', p.flaps + ' / 3', '#8fb3c9'],
     ['AUTOPILOT', p.ap ? (p.ap.wp ? 'NAV' : 'ENGAGED') : 'OFF', p.ap ? '#3ddc97' : '#8fb3c9'],
@@ -3965,6 +4027,7 @@ function frame(now) {
   drawAirportLabels();
   drawRadio();
   drawLesson();
+  drawStorms(dt);
   drawRunwayLights();
   drawApproach();
   drawILS();
