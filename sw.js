@@ -1,6 +1,6 @@
 // Offline support: after the first visit, the game and admin page load without wifi.
 // Bump CACHE when any shipped file changes so browsers pick up the new version.
-const CACHE = 'plane-the-plane-v2';
+const CACHE = 'plane-the-plane-v3';
 const FILES = ['./', './index.html', './admin.html', './favicon.svg'];
 
 self.addEventListener('install', event => {
@@ -24,7 +24,20 @@ self.addEventListener('fetch', event => {
   // the server (accounts and saves) is never cached: it must always answer live
   if (url.pathname.startsWith('/api/')) return;
 
-  // Serve the cached copy at once, and refresh it in the background when wifi is there.
+  // Pages: try the network first, so an update shows on the very next load; use the cached copy when offline.
+  if (req.mode === 'navigate' || url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          if (res && res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(req, copy)); }
+          return res;
+        })
+        .catch(async () => (await caches.match(req, { ignoreSearch: true })) || (await caches.match('./index.html')) || new Response('Offline', { status: 503 }))
+    );
+    return;
+  }
+
+  // Everything else: serve the cached copy at once, and refresh it in the background when wifi is there.
   event.respondWith(
     caches.open(CACHE).then(async cache => {
       const cached = await cache.match(req, { ignoreSearch: true });
