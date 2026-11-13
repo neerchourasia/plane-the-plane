@@ -1229,6 +1229,15 @@ function renderBadges() {
   }
 }
 
+// ---------- rivers and trees
+// Three rivers wind from north to south across the map. Trees stand in the forest cells. Both stay off the airfields.
+const RIVERS = [0, 1, 2].map(i => ({ x0: (i - 1) * 2600 + (hash2(i, 41) - 0.5) * 900, amp: 500 + 400 * hash2(i, 42), wl: 1100 + 500 * hash2(i, 43), ph: hash2(i, 44) * 6.28 }));
+const riverX = (r, z) => r.x0 + r.amp * Math.sin(z / r.wl + r.ph);
+function nearField(x, z) {
+  if (Math.abs(x) < 450 && z > RUNWAY.z0 - 500 && z < RUNWAY.z1 + 500) return true;
+  return AIRPORTS.some(a => Math.hypot(x - a.x, z - a.z) < a.len / 2 + 450);
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -2600,6 +2609,19 @@ function render() {
   // terrain: each cell is a quad on the height field, shaded by its slope and coloured by height.
   // Cells, runway and strips go into one list so hills hide what is behind them.
   const terrainItems = [];
+  const addTrees = (gx, gz, x0, z0) => {
+    for (let t = 0; t < 5; t++) {
+      const x = x0 + hash2(gx * 7 + t, gz + 11) * CELL, z = z0 + hash2(gx + 13, gz * 5 + t) * CELL;
+      const y = terrainAt(x, z), hgt = 9 + 7 * hash2(gx + t, gz - t), rad = 3.2 + 1.6 * hash2(t + 5, gx - gz);
+      const td = Math.hypot(x - eye[0], z - eye[2]), g = (0.55 + 0.45 * sun[1]) * L;
+      const col = rgb(mix(mul([32 + 18 * hash2(gx, t), 86 + 18 * hash2(t, gz), 38], g), mul(HZ, L), fogAt(td)));
+      const trunk = rgb(mix(mul([86, 60, 38], g), mul(HZ, L), fogAt(td)));
+      const base = [0, 1, 2, 3, 4].map(k => { const a = k / 5 * 6.2832; return toCam([x + Math.cos(a) * rad, y + 2, z + Math.sin(a) * rad]); });
+      const apex = toCam([x, y + hgt, z]);
+      const tr = [toCam([x - 0.4, y, z]), toCam([x + 0.4, y, z]), toCam([x + 0.4, y + 2.2, z]), toCam([x - 0.4, y + 2.2, z])];
+      terrainItems.push({ d: td, draw: () => { drawPoly(tr, trunk); for (let k = 0; k < 5; k++) drawPoly([base[k], base[(k + 1) % 5], apex], col); } });
+    }
+  };
   const bx = Math.floor(p.pos[0] / CELL), bz = Math.floor(p.pos[2] / CELL);
   // terrain heights at every cell corner, sampled once per frame
   const M = 2 * GRID_N + 1, cornerH = new Float32Array(M * M);
@@ -2619,7 +2641,10 @@ function render() {
       // mostly meadow, with patches of forest and dry field; rock and snow higher up
       const roll = hash2(gx, gz);
       let base = mix(GROUND_A, GROUND_B, hash2(gx + 101, gz - 77));
-      if (roll < 0.12) base = [44, 96, 48];
+      if (roll < 0.12) {
+        base = [44, 96, 48];
+        if (dist < 1500 && corners.every(c => c[1] > WATER + 0.5) && !nearField(x0 + CELL / 2, z0 + CELL / 2)) addTrees(gx, gz, x0, z0);
+      }
       else if (roll < 0.2) base = [150, 140, 84];
       // only flat lake surfaces are water; ground that the runway pulls down is not
       if (corners.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [44, 96, 140];
@@ -2767,6 +2792,18 @@ function render() {
       if (dist > FOG_END) continue;
       const quad = [[x0 + px, z0 + pz], [x1 + px, z1 + pz], [x1 - px, z1 - pz], [x0 - px, z0 - pz]].map(([x, z]) => toCam([x, terrainAt(x, z) + 0.15, z]));
       terrainItems.push({ d: dist, draw: () => drawPoly(quad, '#4a4a52') });
+    }
+  }
+
+  // rivers: winding blue ribbons across the land, kept clear of the airfields
+  for (const r of RIVERS) {
+    for (let z = -6000; z < 6000; z += 90) {
+      const xa = riverX(r, z), xb = riverX(r, z + 90);
+      const mx = (xa + xb) / 2, mz = z + 45, dist = Math.hypot(mx - eye[0], mz - eye[2]);
+      if (dist > FOG_END || nearField(mx, mz)) continue;
+      const q = [[xa - 11, z], [xa + 11, z], [xb + 11, z + 90], [xb - 11, z + 90]].map(([x, zz]) => toCam([x, terrainAt(x, zz) + 0.25, zz]));
+      const col = rgb(mix(mul([48, 104, 150], L * (0.7 + 0.3 * sun[1])), mul(HZ, L), fogAt(dist)));
+      terrainItems.push({ d: dist, draw: () => drawPoly(q, col) });
     }
   }
 
