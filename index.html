@@ -475,40 +475,65 @@ function buildAircraft(m) {
     }
   };
   const wingCol = sp.wing.col, f = sp.fin, y0 = R * 0.5, tanF = Math.tan(f.sweep);
+  let tailLE = null;
   const tailWg = { ...sp.tail, y: sp.tTail ? y0 + f.h - 0.4 : sp.tail.y };
   surface(sp.wing, wingCol, f.col, true);
-  surface(tailWg, sp.tail.col || wingCol, f.col, false);
+
+  // tailplane: leading edge bowed forward and a rounded tip, so it reads as a curved tail, not a flat card
+  {
+    const g = planform(tailWg), r0 = g.rootS, S = tailWg.span, sE = S * 0.94, bow = tailWg.cr * 0.18;
+    const LEc = s => g.LE(s) + bow * Math.sin(Math.PI * (s - r0) / (S - r0));
+    const col = sp.tail.col || wingCol;
+    for (const k of [-1, 1]) {
+      const pts = [];
+      for (let i = 0; i <= 8; i++) { const s = r0 + (sE - r0) * i / 8; pts.push([k * s, g.Y(s), LEc(s)]); }
+      const zA = LEc(sE), zB = g.TE(sE), zm = (zA + zB) / 2, half = (zA - zB) / 2;
+      for (let i = 1; i < 6; i++) { const a = Math.PI * i / 6; pts.push([k * (sE + (S - sE) * Math.sin(a)), g.Y(S), zm + half * Math.cos(a)]); }
+      pts.push([k * sE, g.Y(sE), zB], [k * r0, g.Y(r0), g.TE(r0)]);
+      flat(pts, col);
+    }
+    tailLE = LEc;
+  }
 
   // hinge lines: thin dark strips on both faces mark the ailerons, flaps and elevators
   const HINGE = [52, 56, 66];
-  const chordAt = (wg, s) => wg.cr + (wg.ct - wg.cr) * (s - R * 0.6) / (wg.span - R * 0.6);
-  const hinge = (wg, s0, s1, frac, w = 0.05) => {
-    const g = planform(wg);
+  const hinge = (wg, s0, s1, frac, le, w = 0.05) => {
+    const g = planform(wg), lead = le || g.LE;
     for (const k of [-1, 1]) {
       for (const dy of [0.015, -0.015]) {
-        const z0 = g.LE(s0) - frac * chordAt(wg, s0), z1 = g.LE(s1) - frac * chordAt(wg, s1);
+        const z0 = g.TE(s0) + (1 - frac) * (lead(s0) - g.TE(s0)), z1 = g.TE(s1) + (1 - frac) * (lead(s1) - g.TE(s1));
         flat([[k * s0, g.Y(s0) + dy, z0], [k * s1, g.Y(s1) + dy, z1], [k * s1, g.Y(s1) + dy, z1 - w], [k * s0, g.Y(s0) + dy, z0 - w]], HINGE);
       }
     }
   };
-  hinge(sp.wing, sp.wing.span * 0.62, sp.wing.span * 0.94, 0.74);    // aileron
-  hinge(sp.wing, R * 0.6 + 0.35, sp.wing.span * 0.48, 0.74);         // flap
-  hinge(tailWg, R * 0.6 + 0.1, tailWg.span * 0.95, 0.68);            // elevator
+  hinge(sp.wing, sp.wing.span * 0.62, sp.wing.span * 0.94, 0.74);                  // aileron
+  hinge(sp.wing, R * 0.6 + 0.35, sp.wing.span * 0.48, 0.74);                       // flap
+  hinge(tailWg, R * 0.6 + 0.1, tailWg.span * 0.9, 0.68, tailLE);                   // elevator
 
-  // fin: a thin wedge with a leading edge, top and trailing edge, not a flat card; a hinge line marks the rudder
+  // fin: a thin wedge. The leading edge bows forward, the tip is rounded, a dorsal fillet blends it into the body,
+  // and a hinge line marks the rudder.
   {
-    const th = Math.max(0.04, f.cr * 0.035), tk = 0.4;
-    const tipZ = f.z - tanF * f.h, edge = mul(f.col, 0.92);
-    for (const k of [-1, 1]) {
-      flat([[k * th, y0, f.z], [k * th * tk, y0 + f.h, tipZ], [k * th * tk, y0 + f.h, tipZ - f.ct], [k * th, y0, f.z - f.cr]], f.col);
+    const th = Math.max(0.04, f.cr * 0.035), tk = 0.4, bowF = f.cr * 0.16, TOP = 0.9;
+    const zLE = t => f.z - tanF * f.h * t + bowF * Math.sin(Math.PI * t / TOP);
+    const zTE = t => f.z - tanF * f.h * t - (f.cr + (f.ct - f.cr) * t);
+    const thAt = t => th * (1 - (1 - tk) * t);
+    const outline = [];   // [z, t]: up the leading edge, round the tip, down the trailing edge
+    for (let i = 0; i <= 9; i++) { const t = TOP * i / 9; outline.push([zLE(t), t]); }
+    const zm = (zLE(TOP) + zTE(TOP)) / 2, half = (zLE(TOP) - zTE(TOP)) / 2;
+    for (let i = 1; i < 6; i++) { const a = Math.PI * i / 6; outline.push([zm + half * Math.cos(a), TOP + (1 - TOP) * Math.sin(a)]); }
+    outline.push([zTE(TOP), TOP], [zTE(0), 0]);
+    const edge = mul(f.col, 0.92);
+    for (const k of [-1, 1]) flat(outline.map(([z, t]) => [k * thAt(t), y0 + f.h * t, z]), f.col);
+    for (let i = 0; i < outline.length - 1; i++) {
+      const [z1, t1] = outline[i], [z2, t2] = outline[i + 1];
+      flat([[-thAt(t1), y0 + f.h * t1, z1], [thAt(t1), y0 + f.h * t1, z1], [thAt(t2), y0 + f.h * t2, z2], [-thAt(t2), y0 + f.h * t2, z2]], edge);
     }
-    flat([[-th, y0, f.z], [th, y0, f.z], [th * tk, y0 + f.h, tipZ], [-th * tk, y0 + f.h, tipZ]], edge);
-    flat([[-th * tk, y0 + f.h, tipZ], [th * tk, y0 + f.h, tipZ], [th * tk, y0 + f.h, tipZ - f.ct], [-th * tk, y0 + f.h, tipZ - f.ct]], edge);
-    flat([[-th, y0, f.z - f.cr], [th, y0, f.z - f.cr], [th * tk, y0 + f.h, tipZ - f.ct], [-th * tk, y0 + f.h, tipZ - f.ct]], edge);
     for (const k of [-1, 1]) {
-      const at = (t, frac) => [k * (th - th * (1 - tk) * t + 0.006), y0 + f.h * t, f.z - tanF * f.h * t - frac * (f.cr + (f.ct - f.cr) * t)];
-      flat([at(0.06, 0.68), at(0.94, 0.68), at(0.94, 0.72), at(0.06, 0.72)], HINGE);
+      const at = t => [k * (thAt(t) + 0.006), y0 + f.h * t, zTE(t) + 0.32 * (zLE(t) - zTE(t))];
+      flat([at(0.06), at(0.84), [k * (thAt(0.84) + 0.006), y0 + f.h * 0.84, zTE(0.84) + 0.28 * (zLE(0.84) - zTE(0.84))], [k * (thAt(0.06) + 0.006), y0 + f.h * 0.06, zTE(0.06) + 0.28 * (zLE(0.06) - zTE(0.06))]], HINGE);
     }
+    // dorsal fillet: a low fairing from the fuselage ridge up into the leading edge, painted like the body
+    flat([[0, y0 - 0.04, f.z + R * 2.2], [0, y0 + f.h * 0.22, zLE(0.22) + 0.02], [0, y0, f.z]], sp.body);
   }
   lights.push({ p: [0, y0 + f.h, f.z - tanF * f.h - f.ct / 2], col: [255, 255, 255], flash: true });
 
