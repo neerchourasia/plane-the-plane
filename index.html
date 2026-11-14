@@ -12,7 +12,8 @@
   #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 58%,rgba(0,0,0,0.26) 100%)}
   #soundBtn{position:fixed;top:30px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #soundBtn:hover,#gfxBtn:hover{background:rgba(0,0,0,.65)}
-  @media (max-height: 520px) { #help { display: none; } #soundBtn, #gfxBtn { padding: 4px 8px; font-size: 11px; } #gfxBtn { top: 56px; } }
+  @media (max-height: 520px) { #help { display: none; } #soundBtn, #gfxBtn, #setBtn { padding: 4px 8px; font-size: 11px; } #gfxBtn { top: 56px; } #setBtn { top: 82px; } }
+  #setBtn{position:fixed;top:98px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #gfxBtn{position:fixed;top:64px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -90,6 +91,10 @@
 @media (max-width: 600px) { #tbtns { width: 176px; gap: 6px; } #tbtns button { padding: 10px 4px; font-size: 11px; } #stick { width: 120px; height: 120px; } }
 </style>
 <style>
+#settingsPanel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.9); z-index: 23; }
+#settingsPanel .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(440px, 94vw); max-height: 92vh; overflow: auto; }
+#settingsPanel .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #1f2f47; }
+#settingsPanel button { background: #3ddc97; border: 0; border-radius: 6px; padding: 6px 12px; font: inherit; color: #06201a; cursor: pointer; }
 #account { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.9); z-index: 22; }
 #account .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(440px, 94vw); }
 #account label { display: grid; gap: 4px; font-size: 13px; margin: 8px 0; }
@@ -176,6 +181,13 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
   </div>
 </div>
 <input id="chatBox" maxlength="80" placeholder="Say something to pilots online, then press Enter (public)" autocomplete="off">
+<div id="settingsPanel">
+  <div class="card">
+    <h2>Settings</h2>
+    <div id="settingsList"></div>
+    <button id="settingsClose">Close</button>
+  </div>
+</div>
 <div id="account">
   <div class="card">
     <h2>Account</h2>
@@ -230,6 +242,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
 </div>
 <button id="soundBtn" title="Sound on or off (M)">SOUND ON</button>
 <button id="gfxBtn" title="Graphics: auto lowers the detail on a slow device">GFX AUTO</button>
+<button id="setBtn" title="Settings (Esc)">SETTINGS</button>
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
@@ -306,6 +319,16 @@ V           back flip: a full loop backwards, +50 coins (needs speed, in the air
 X           barrel roll: a full roll sideways, +40 coins (needs speed, in the air)
 T           teleport menu</div>
 <script>
+// ---------- settings: kept in this browser. The colour-blind palette swaps the HUD's green and red for blue and orange.
+const SETTINGS_KEY = 'plane-the-plane-settings';
+let settings = { towerVoice: true, colourBlind: false, checklist: true, help: true };
+try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch (e) { /* storage blocked */ }
+const PAL = {
+  get good() { return settings.colourBlind ? '#4ea3ff' : '#3ddc97'; },
+  get bad() { return settings.colourBlind ? '#ff8a3d' : '#ff6b6b'; },
+  get warn() { return settings.colourBlind ? '#ffe066' : '#ff9f43'; }
+};
+function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* not saved */ } }
 // ---------- canvas setup
 // three stacked layers: the scene (sky, terrain, shadow), the aircraft in WebGL, and the HUD on top
 const canvas = document.getElementById('c');
@@ -1504,7 +1527,7 @@ function drawEvents() {
   // the nearest emergency: distance and bearing under the compass, and the water left
   const n = nearestEvent();
   if (n && n.d < 20000) {
-    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'center'; ctx.fillStyle = n.e.type === 'fire' ? '#ff9a5a' : '#ff6b6b';
+    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'center'; ctx.fillStyle = n.e.type === 'fire' ? '#ff9a5a' : PAL.bad;
     ctx.fillText(`${n.e.type === 'fire' ? 'WILDFIRE' : 'SURVIVORS'} ${(n.d / 1000).toFixed(1)} KM ${bearingText(n.e.x - p.pos[0], n.e.z - p.pos[2])}${n.e.type === 'fire' ? '   WATER ' + Math.round((p.water == null ? 1 : p.water) * 100) + '%' : ''}`, W / 2, 62);
     ctx.textAlign = 'start';
   }
@@ -1774,7 +1797,7 @@ let radioText = '', radioUntil = 0;
 const radioQueue = [];
 // a radio call: a short crackle and a click, then the words in a flat spoken voice when the browser can speak
 function radioVoice(text) {
-  if (!soundOn || typeof speechSynthesis === 'undefined') return;
+  if (!soundOn || !settings.towerVoice || typeof speechSynthesis === 'undefined') return;
   try {
     playBurst(0.12, 0.12, 3000);
     speechSynthesis.cancel();
@@ -2229,7 +2252,7 @@ function drawStorms(dt) {
     // a warning when one is ahead and close
     const dx = x - p.pos[0], dz = z - p.pos[2], d = Math.hypot(dx, dz);
     if (d < 3500 && (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / d > 0.6 && p.pos[1] < 3500) {
-      ctx.fillStyle = '#ff9f43'; ctx.font = 'bold 14px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+      ctx.fillStyle = PAL.warn; ctx.font = 'bold 14px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
       ctx.fillText(`STORM AHEAD ${(d / 1000).toFixed(1)} KM`, W / 2, 152);
       ctx.textAlign = 'start';
     }
@@ -2519,7 +2542,7 @@ function drawGuide() {
   }
   ctx.font = 'bold 11px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ['N', 'E', 'S', 'W'].forEach((c, i) => {
-    ctx.fillStyle = c === 'N' ? '#ff6b6b' : '#e8eef5';
+    ctx.fillStyle = c === 'N' ? PAL.bad : '#e8eef5';
     ctx.fillText(c, Math.sin(i * Math.PI / 2) * (R - 17), -Math.cos(i * Math.PI / 2) * (R - 17));
   });
   ctx.restore();
@@ -3059,6 +3082,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyY' && !e.repeat && pilot && !homeOpen && !chatOpen) { e.preventDefault(); return openChat(); }
+  if (settingsOpen && e.code === 'Escape') return toggleSettings();
   if (regionsOpen && e.code === 'Escape') return toggleRegions();
   if (accountOpen && e.code === 'Escape') return toggleAccount();
   if (racesOpen && e.code === 'Escape') return toggleRaces();
@@ -3754,7 +3778,7 @@ function drawLandingReport() {
   const w = Math.min(430, W - 20), h = 150, x = W / 2 - w / 2, y = Math.max(70, H * 0.12);
   ctx.globalAlpha = age > 12 ? (14 - age) / 2 : 1;
   ctx.fillStyle = 'rgba(8,24,44,0.82)'; ctx.fillRect(x, y, w, h);
-  ctx.textAlign = 'left'; ctx.font = 'bold 15px ui-monospace, Menlo, Consolas, monospace'; ctx.fillStyle = R.score >= 80 ? '#6dff9a' : R.score >= 50 ? '#ffd23f' : '#ff8a6b';
+  ctx.textAlign = 'left'; ctx.font = 'bold 15px ui-monospace, Menlo, Consolas, monospace'; ctx.fillStyle = R.score >= 80 ? PAL.good : R.score >= 50 ? '#ffd23f' : PAL.bad;
   ctx.fillText(`LANDING REPORT  ${R.grade}  ${R.score}/100`, x + 12, y + 20);
   ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'; ctx.fillStyle = '#cfe8f5';
   const lines = [`Glide slope error ${R.glide.toFixed(1)} deg`, `Centre line error ${Math.round(R.lat)} m`, `Touched down ${Math.round(R.td + 100)} m ${R.td + 100 < 0 ? 'short of' : 'past'} the aim`, `Sink rate ${R.impact.toFixed(1)} m/s`, `Speed ${Math.round(R.speed)} kt`];
@@ -3789,7 +3813,7 @@ function toggleILS() {
   p.ap = { yaw: q.end.hdg, alt: p.pos[1], ils: { hdg: q.end.hdg, ux: q.ux, uz: q.uz, TD: q.TD, gy: q.gy } };
   flashNote(`ILS AUTOLAND: RUNWAY ${q.end.num}`);
 }
-let checklistOn = true;
+let checklistOn = settings.checklist;
 function toggleAutopilot() {
   const p = plane;
   if (p.model.heli) { flashNote('NO AUTOPILOT IN A HELICOPTER'); return; }
@@ -5382,11 +5406,11 @@ function verticalTape(x, value, step, labelEvery, side) {
   ctx.restore();
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
   ctx.fillRect(x, H / 2 - 13, WIDTH, 26);
-  ctx.strokeStyle = '#3ddc97';
+  ctx.strokeStyle = PAL.good;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(x + 0.5, H / 2 - 12.5, WIDTH - 1, 25);
   setFont(16, true);
-  ctx.fillStyle = '#3ddc97';
+  ctx.fillStyle = PAL.good;
   ctx.textAlign = 'center';
   ctx.fillText(String(Math.round(value)), x + WIDTH / 2, H / 2);
 }
@@ -5456,7 +5480,7 @@ function drawHUD(now) {
   // reference speeds for this plane and flap setting: stall, rotate (take-off) and approach
   if (!p.model.heli && !isCompact()) {
     const vs = stallSpeed(p) * 1.944;
-    ctx.fillStyle = p.speed < stallSpeed(p) * 1.15 && !p.onGround ? '#ff6b6b' : '#8fb3c9';
+    ctx.fillStyle = p.speed < stallSpeed(p) * 1.15 && !p.onGround ? PAL.bad : '#8fb3c9';
     ctx.fillText('VS ' + Math.round(vs), 28, H / 2 + 134);
     ctx.fillStyle = '#8fb3c9';
     ctx.fillText('VR ' + Math.round(vs * 1.15) + '  VREF ' + Math.round(vs * 1.3), 28, H / 2 + 150);
@@ -5472,7 +5496,7 @@ function drawHUD(now) {
   ctx.fillStyle = '#ffd23f';
   ctx.fillText('COINS ' + save.coins, 28, 44);
   if (p.lastReward) {
-    ctx.fillStyle = '#3ddc97';
+    ctx.fillStyle = PAL.good;
     ctx.fillText('LANDED +' + p.lastReward, 28, 64);
   }
   if (save.contract) {
@@ -5496,7 +5520,7 @@ function drawHUD(now) {
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(255,255,255,0.15)';
   ctx.fillRect(bx, by, bw, 10);
-  ctx.fillStyle = p.throttle > 0.9 ? '#ff9f43' : '#3ddc97';
+  ctx.fillStyle = p.throttle > 0.9 ? PAL.warn : PAL.good;
   ctx.fillRect(bx, by, bw * p.throttle, 10);
 
   if (!p.onGround && !p.crashed && p.speed < stallSpeed(p) + 4 && Math.floor(now / 250) % 2 === 0) {
@@ -5513,7 +5537,7 @@ function drawHUD(now) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     setFont(32, true);
-    ctx.fillStyle = '#ff6b6b';
+    ctx.fillStyle = PAL.bad;
     ctx.fillText('CRASHED: ' + p.crashMsg.toUpperCase(), W / 2, H / 2 - 30);
     setFont(18);
     ctx.fillStyle = '#ffffff';
@@ -5718,7 +5742,7 @@ function drawChecklist() {
   ctx.font = 'bold 12px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'left';
   ctx.fillStyle = '#9fe6ff'; ctx.fillText('PRE-FLIGHT CHECKLIST  (Z: hide)', x + 10, y + 18);
   items.forEach(([t, ok], k) => {
-    ctx.fillStyle = ok ? '#6dff9a' : '#ffd23f';
+    ctx.fillStyle = ok ? PAL.good : '#ffd23f';
     ctx.fillText((ok ? '[x] ' : '[ ] ') + t, x + 10, y + 40 + k * 20);
   });
 }
@@ -5742,14 +5766,14 @@ function drawStatus() {
   const gs = Math.hypot(p.vel[0] + wind[0], p.vel[2] + wind[1]) * 1.944;
   const rain = rainLevel();
   let rows = [
-    ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
-    ...(p.leak ? [['FUEL LEAK', 'YES', '#ff6b6b']] : []),
-    ...(p.fire != null ? [['FIRE', Math.max(0, 30 - Math.floor(p.fire)) + ' s', '#ff3b30']] : []),
-    ...(p.engineOut ? [['ENGINE', 'OUT', '#ff6b6b']] : []),
+    ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? PAL.good : PAL.warn],
+    ...(p.leak ? [['FUEL LEAK', 'YES', PAL.bad]] : []),
+    ...(p.fire != null ? [['FIRE', Math.max(0, 30 - Math.floor(p.fire)) + ' s', PAL.bad]] : []),
+    ...(p.engineOut ? [['ENGINE', 'OUT', PAL.bad]] : []),
     ...((p.ice || 0) > 0.05 ? [['ICING', Math.round(p.ice * 100) + '%', '#9fd8ff']] : []),
-    ...(wearOf() >= 5 ? [['WEAR', Math.round(wearOf()) + '%', wearOf() > 50 ? '#ff6b6b' : '#ff9f43']] : []),
+    ...(wearOf() >= 5 ? [['WEAR', Math.round(wearOf()) + '%', wearOf() > 50 ? PAL.bad : PAL.warn]] : []),
     ['FLAPS', p.flaps + ' / 3', '#8fb3c9'],
-    ['AUTOPILOT', p.ap ? (p.ap.wp ? 'NAV' : 'ENGAGED') : 'OFF', p.ap ? '#3ddc97' : '#8fb3c9'],
+    ['AUTOPILOT', p.ap ? (p.ap.wp ? 'NAV' : 'ENGAGED') : 'OFF', p.ap ? PAL.good : '#8fb3c9'],
     ['LIGHTS', lightsOn ? 'ON' : 'OFF', '#8fb3c9'],
     ['ENGINE SOUND', soundOn ? 'ON' : 'OFF', '#8fb3c9'],
     ['AGL', Math.round(agl) + ' ft', '#8fb3c9'],
@@ -6992,6 +7016,33 @@ async function signOut() {
 }
 
 // ---------- account screen: change the password, or delete the account
+let settingsOpen = false;
+function toggleSettings() {
+  settingsOpen = !settingsOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('settingsPanel').style.display = settingsOpen ? 'flex' : 'none';
+  if (settingsOpen) renderSettings();
+}
+function renderSettings() {
+  const box = document.getElementById('settingsList');
+  box.innerHTML = '';
+  const row = (label, text, fn) => {
+    const r = document.createElement('div'); r.className = 'row';
+    const l = document.createElement('span'); l.textContent = label;
+    const b = document.createElement('button'); b.textContent = text; b.onclick = () => { fn(); renderSettings(); };
+    r.append(l, b); box.append(r);
+  };
+  row('Sound', soundOn ? 'On' : 'Off', () => setSound(!soundOn));
+  row('Graphics', gfxMode.toUpperCase(), () => setGfx({ auto: 'low', low: 'high', high: 'auto' }[gfxMode] || 'auto'));
+  row('Spoken tower calls', settings.towerVoice ? 'On' : 'Off', () => { settings.towerVoice = !settings.towerVoice; saveSettings(); });
+  row('Colour-blind palette (blue and orange)', settings.colourBlind ? 'On' : 'Off', () => { settings.colourBlind = !settings.colourBlind; saveSettings(); });
+  row('Pre-flight checklist', checklistOn ? 'On' : 'Off', () => { checklistOn = !checklistOn; settings.checklist = checklistOn; saveSettings(); });
+  row('Key help on the screen', settings.help ? 'On' : 'Off', () => { settings.help = !settings.help; saveSettings(); applyHelp(); });
+}
+function applyHelp() { const h = document.getElementById('help'); if (h) h.style.visibility = settings.help ? 'visible' : 'hidden'; }
+document.getElementById('setBtn').addEventListener('click', e => { toggleSettings(); e.currentTarget.blur(); });
+document.getElementById('settingsClose').addEventListener('click', toggleSettings);
+applyHelp();
 let accountOpen = false;
 function toggleAccount() {
   accountOpen = !accountOpen;
