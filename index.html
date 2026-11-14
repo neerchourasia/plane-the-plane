@@ -8,7 +8,7 @@
 <style>
   html,body{margin:0;height:100%;background:#0b1020;overflow:hidden;font-family:ui-monospace,Menlo,Consolas,monospace}
   canvas{display:block;position:fixed;left:0;top:0;width:100vw;height:100vh}
-  #c,#gl{filter:contrast(1.06) saturate(1.1)}
+  #c,#tgl,#obj,#gl{filter:contrast(1.06) saturate(1.1)}
   #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 58%,rgba(0,0,0,0.26) 100%)}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -107,6 +107,8 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
 </head>
 <body>
 <canvas id="c"></canvas>
+<canvas id="tgl"></canvas>
+<canvas id="obj"></canvas>
 <canvas id="gl"></canvas>
 <div id="vignette"></div>
 <canvas id="fx"></canvas>
@@ -295,16 +297,23 @@ const sceneCtx = canvas.getContext('2d');
 let ctx = sceneCtx;                          // whichever layer is being drawn into
 const glCanvas = document.getElementById('gl');
 const gl = glCanvas.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: true });
+// the ground is drawn in WebGL (smooth lighting and a fine texture); the objects on it (buildings, trees, roads, runways, clouds) are 2D above it
+const tglCanvas = document.getElementById('tgl'), objCanvas = document.getElementById('obj');
+const tgl = tglCanvas.getContext('webgl', { antialias: false, alpha: true, premultipliedAlpha: true });
+const objCtx = objCanvas.getContext('2d');
+let terrainGL = null;   // set once the world is built; stays null if WebGL cannot draw the ground (the old 2D ground is the fallback)
 const fxCanvas = document.getElementById('fx');
 const fxCtx = fxCanvas.getContext('2d');
 let W = 0, H = 0;
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   W = innerWidth; H = innerHeight;
-  for (const c of [canvas, glCanvas, fxCanvas]) { c.width = W * dpr; c.height = H * dpr; }
+  for (const c of [canvas, glCanvas, fxCanvas, tglCanvas, objCanvas]) { c.width = W * dpr; c.height = H * dpr; }
   sceneCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  objCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (gl) gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  if (tgl) tgl.viewport(0, 0, tglCanvas.width, tglCanvas.height);
 }
 addEventListener('resize', resize);
 resize();
@@ -3678,6 +3687,13 @@ function render() {
     }
   }
 
+  // the ground: drawn by WebGL on its own layer when it can; everything after this goes onto the objects layer above it
+  const useGL = !!terrainGL;
+  if (useGL) {
+    ctx = objCtx;
+    objCtx.clearRect(0, 0, W, H);
+    drawTerrainGL(eye, cr, cu, cf, mul(mix(HZ, [190, 210, 235], 0.15), L), L);
+  }
   // terrain: each cell is a quad on the height field, shaded by its slope and coloured by height.
   // Cells, runway and strips go into one list so hills hide what is behind them.
   const terrainItems = [];
@@ -3691,7 +3707,7 @@ function render() {
       const base = [0, 1, 2, 3, 4].map(k => { const a = k / 5 * 6.2832; return toCam([x + Math.cos(a) * rad, y + 2, z + Math.sin(a) * rad]); });
       const apex = toCam([x, y + hgt, z]);
       const tr = [toCam([x - 0.4, y, z]), toCam([x + 0.4, y, z]), toCam([x + 0.4, y + 2.2, z]), toCam([x - 0.4, y + 2.2, z])];
-      terrainItems.push({ d: td, draw: () => { drawPoly(tr, trunk); for (let k = 0; k < 5; k++) drawPoly([base[k], base[(k + 1) % 5], apex], col); } });
+      terrainItems.push({ d: td, wp: [x, y + 8, z], draw: () => { drawPoly(tr, trunk); for (let k = 0; k < 5; k++) drawPoly([base[k], base[(k + 1) % 5], apex], col); } });
     }
   };
   // one facet of the ground: shaded by its slope, with water, beach, rock and snow decided by its height and steepness
@@ -3718,7 +3734,7 @@ function render() {
       const gx = bx + i, gz = bz + j;
       const x0 = gx * CELL, z0 = gz * CELL;
       const dist = Math.hypot(x0 + CELL / 2 - eye[0], z0 + CELL / 2 - eye[2]);
-      if (dist > FOG_END * 1.2) continue;
+      if (dist > (useGL ? 1500 : FOG_END * 1.2)) continue;
       const ia = (i + GRID_N) * M + (j + GRID_N);
       const corners = [[x0, cornerH[ia], z0], [x0 + CELL, cornerH[ia + M], z0], [x0 + CELL, cornerH[ia + M + 1], z0 + CELL], [x0, cornerH[ia + 1], z0 + CELL]];
       // the surface normal, turned to point up, sets the slope shading
@@ -3727,6 +3743,7 @@ function render() {
       const h = (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4;
       // mostly meadow, with patches of forest and dry field; rock and snow higher up
       const roll = hash2(gx, gz);
+      if (useGL && roll >= 0.12) continue;   // only the forest cells matter here: they get trees
       let base = mix(GROUND_A, GROUND_B, hash2(gx + 101, gz - 77));
       if (roll < 0.12) {
         base = [44, 96, 48];
@@ -3742,8 +3759,9 @@ function render() {
       if (LAND.tint && roll >= 0.12) base = mix(base, LAND.tint, LAND.tintK);   // the land's own colour: dry red soil, dark conifers, lush green
       base = mul(base, 0.94 + 0.12 * hash2(gx * 13 + 5, gz * 7 - 9));   // a little variation from cell to cell
       // close to the plane the cell is split into 2 by 2 or 4 by 4 smaller facets, so ridges and valleys keep their shape
-      const S = dist < 450 ? 4 : dist < 1100 ? 2 : 1;
-      if (S === 1) facet(corners, base, dist, 1);
+      const S = useGL ? 0 : dist < 450 ? 4 : dist < 1100 ? 2 : 1;
+      if (S === 0) { /* the ground itself is drawn by WebGL */ }
+      else if (S === 1) facet(corners, base, dist, 1);
       else {
         const q = CELL / S, sub = [];
         for (let a = 0; a <= S; a++) for (let b = 0; b <= S; b++) sub.push(terrainAt(x0 + a * q, z0 + b * q));
@@ -3769,7 +3787,7 @@ function render() {
       const x = side * (RUNWAY.x - 1.4);
       parts.push([q(x - 0.3, x + 0.3, z, z1), '#ececec']);
     }
-    terrainItems.push({ d: Math.hypot(eye[0], (z + z1) / 2 - eye[2]), draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
+    terrainItems.push({ d: Math.hypot(eye[0], (z + z1) / 2 - eye[2]), wp: [0, HOME_Y + 1, (z + z1) / 2], draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
   };
   for (let z = RUNWAY.z0; z < RUNWAY.z1; z += 150) runwayPiece(z, Math.min(z + 150, RUNWAY.z1));
 
@@ -3786,7 +3804,7 @@ function render() {
       for (let t = -hl + 40; t + 40 <= hl; t += 80) {
         if (t >= a && t + 40 <= a1) parts.push([[pt(t, -1), pt(t + 40, -1), pt(t + 40, 1), pt(t, 1)], '#e8e8e8']);
       }
-      terrainItems.push({ d, draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
+      terrainItems.push({ d, wp: [ap.x + ux * mid, y0 + 1, ap.z + uz * mid], draw: () => parts.forEach(([cam, col]) => drawPoly(cam, col)) });
     }
   }
 
@@ -3901,7 +3919,7 @@ function render() {
       const dist = Math.hypot((x0 + x1) / 2 - eye[0], (z0 + z1) / 2 - eye[2]);
       if (dist > FOG_END) continue;
       const quad = [[x0 + px, z0 + pz], [x1 + px, z1 + pz], [x1 - px, z1 - pz], [x0 - px, z0 - pz]].map(([x, z]) => toCam([x, terrainAt(x, z) + 0.15, z]));
-      terrainItems.push({ d: dist, draw: () => drawPoly(quad, '#4a4a52') });
+      terrainItems.push({ d: dist, wp: [(x0 + x1) / 2, terrainAt((x0 + x1) / 2, (z0 + z1) / 2) + 1, (z0 + z1) / 2], draw: () => drawPoly(quad, '#4a4a52') });
     }
   }
 
@@ -3913,13 +3931,16 @@ function render() {
       if (dist > FOG_END || nearField(mx, mz)) continue;
       const q = [[xa - 11, z], [xa + 11, z], [xb + 11, z + 90], [xb - 11, z + 90]].map(([x, zz]) => toCam([x, terrainAt(x, zz) + 0.25, zz]));
       const col = rgb(mix(mul([48, 104, 150], L * (0.7 + 0.3 * sun[1])), mul(HZ, L), fogAt(dist)));
-      terrainItems.push({ d: dist, draw: () => drawPoly(q, col) });
+      terrainItems.push({ d: dist, wp: [mx, terrainAt(mx, mz) + 1, mz], draw: () => drawPoly(q, col) });
     }
   }
 
   // ground first, far to near, so the plane's shadow lands on top of it
   terrainItems.sort((a, b) => b.d - a.d);
-  for (const it of terrainItems) it.draw();
+  for (const it of terrainItems) {
+    if (useGL && it.wp && it.d > 250 && hiddenByLand(eye, it.wp)) continue;
+    it.draw();
+  }
 
   // plane shadow on the ground, cast along the sun direction and fading with height
   if (p.pos[1] < 400 && sun[1] > 0.05) {
@@ -4749,6 +4770,212 @@ function drawPlaneGL({ eye, cr, cu, cf }) {
     { eye, cr, cu, cf, focal: F, halfW: W / 2, halfH: H / 2, near: NEAR, far: 20000, dim: 0.3 + 0.7 * daylight() });
 }
 
+// ---------- the ground in WebGL: one smooth mesh of the whole height map, lit per pixel, with a fine texture made in the shader
+const TGL_VS = `
+attribute vec3 aPos; attribute vec3 aNor;
+uniform vec3 uEye, uR, uU, uF;
+uniform float uFocal, uHalfW, uHalfH, uNear, uFar;
+varying vec3 vW; varying vec3 vN;
+void main() {
+  vec3 d = aPos - uEye;
+  vec3 c = vec3(dot(d, uR), dot(d, uU), dot(d, uF));
+  float z = (c.z - uNear) / (uFar - uNear) * 2.0 - 1.0;
+  gl_Position = vec4(c.x * uFocal / uHalfW, c.y * uFocal / uHalfH, z * c.z, c.z);
+  vW = aPos; vN = aNor;
+}`;
+const TGL_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec3 uEye, uSun, uHaze, uRock, uTint;
+uniform float uDim, uFogStart, uFogEnd, uTime, uWater, uRockH, uSnowH, uTintK;
+varying vec3 vW; varying vec3 vN;
+float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float vn(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+float fbm(vec2 p) { float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * vn(p); p = p * 2.03 + vec2(7.1, 3.7); a *= 0.5; } return s; }
+void main() {
+  vec3 V = uEye - vW;
+  float dist = length(V); V /= dist;
+  vec3 N = normalize(vN);
+  vec2 xz = vW.xz;
+  float h = vW.y;
+  float far = smoothstep(150.0, 1800.0, dist);          // the fine detail fades with distance
+  vec3 bump = vec3(vn(xz * 0.55) - 0.5, 0.0, vn(xz * 0.55 + 19.0) - 0.5) * 0.9 * (1.0 - far);
+  vec3 Nd = normalize(N + bump);
+  vec3 col;
+  float spec = 0.0;
+  if (h < uWater + 0.15) {
+    // water: a moving ripple, a reflection of the sky that grows toward the horizon, and the sun's glint
+    vec2 w = xz * 0.09 + vec2(uTime * 0.35, uTime * 0.21);
+    vec3 Nw = normalize(vec3((vn(w) - 0.5) * 0.35, 1.0, (vn(w + 13.0) - 0.5) * 0.35));
+    float fres = pow(1.0 - max(dot(Nw, V), 0.0), 3.0);
+    vec3 deep = vec3(0.13, 0.33, 0.49) * (0.9 + 0.2 * vn(xz * 0.02));
+    vec3 skyc = mix(uHaze, vec3(0.42, 0.6, 0.88) * uDim, 0.45);
+    col = mix(deep * uDim, skyc, 0.12 + 0.6 * fres);
+    vec3 R = reflect(-V, Nw);
+    spec = (pow(max(dot(R, uSun), 0.0), 240.0) * 1.3 + pow(max(dot(R, uSun), 0.0), 24.0) * 0.14) * uDim;
+  } else {
+    vec2 q = xz + 70.0 * vec2(vn(xz / 200.0), vn(xz / 200.0 + 9.0));     // wobble the patch borders
+    vec2 cell = floor(q / 125.0);
+    float roll = h21(cell);
+    float macro = fbm(xz / 650.0);
+    vec3 base = mix(vec3(0.27, 0.49, 0.23), vec3(0.22, 0.43, 0.19), macro);
+    if (roll < 0.12) { base = vec3(0.16, 0.36, 0.18) * (0.72 + 0.55 * vn(xz * 0.45)); }              // forest canopy
+    else if (roll < 0.2) { base = vec3(0.59, 0.54, 0.33); }                                          // dry grass
+    else if (N.y > 0.93 && h < 300.0) {
+      // flat low ground: a patchwork of fields with furrows
+      vec2 fc = floor(cell / 2.0);
+      float fr = h21(fc + 3.7);
+      vec3 field = fr < 0.22 ? vec3(0.78, 0.69, 0.38) : fr < 0.42 ? vec3(0.36, 0.6, 0.24) : fr < 0.56 ? vec3(0.52, 0.39, 0.25) : fr < 0.7 ? vec3(0.48, 0.67, 0.34) : base;
+      float ang = h21(fc + 1.3) * 3.1416;
+      float fur = 0.5 + 0.5 * sin(dot(xz, vec2(cos(ang), sin(ang))) * 0.9);
+      field *= 0.92 + 0.14 * fur * (1.0 - far);
+      base = mix(base, field, fr < 0.7 ? 0.85 : 0.0);
+    }
+    if (uTintK > 0.0 && roll >= 0.12) base = mix(base, uTint, uTintK);
+    // grain at several scales
+    base *= 0.8 + 0.24 * fbm(xz / 38.0) + 0.1 * vn(xz * 0.21) + 0.06 * vn(xz * 1.3) * (1.0 - far);
+    // a sandy beach along the water
+    base = mix(base, vec3(0.83, 0.77, 0.58) * (0.9 + 0.2 * vn(xz * 0.5)), clamp((uWater + 2.4 - h) / 1.2, 0.0, 1.0));
+    // bare rock on steep slopes and high ground, with layers
+    float rockMix = clamp((0.84 - N.y) / 0.1, 0.0, 1.0) * 0.75 + clamp((h - uRockH) / 250.0, 0.0, 1.0) * 0.8;
+    vec3 rock = uRock * (0.72 + 0.55 * vn(vec2(xz.x * 0.08 + xz.y * 0.05, h * 0.35)));
+    base = mix(base, rock, clamp(rockMix, 0.0, 1.0));
+    // snow, with a ragged edge
+    float sn = clamp((h - uSnowH) / 150.0 + (vn(xz / 60.0) - 0.5) * 0.35, 0.0, 1.0);
+    base = mix(base, vec3(0.93, 0.95, 0.98), sn);
+    float diff = max(dot(Nd, uSun), 0.0);
+    col = base * clamp(0.42 + 0.58 * diff, 0.42, 1.0) * uDim;
+  }
+  col += vec3(spec);
+  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  col = mix(col, uHaze, fog);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+function initTerrainGL() {
+  const g = tgl;
+  if (!g) return null;
+  try {
+    const compile = (type, src) => {
+      const sh = g.createShader(type);
+      g.shaderSource(sh, src); g.compileShader(sh);
+      if (!g.getShaderParameter(sh, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(sh));
+      return sh;
+    };
+    const prog = g.createProgram();
+    g.attachShader(prog, compile(g.VERTEX_SHADER, TGL_VS));
+    g.attachShader(prog, compile(g.FRAGMENT_SHADER, TGL_FS));
+    g.linkProgram(prog);
+    if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
+    const loc = n => g.getAttribLocation(prog, n), uni = {};
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uRock', 'uTint', 'uDim', 'uFogStart', 'uFogEnd', 'uTime', 'uWater', 'uRockH', 'uSnowH', 'uTintK']) uni[n] = g.getUniformLocation(prog, n);
+    // heights of every grid point, with the runway platforms and lakes applied, and smooth normals from them
+    const N = TER_N, TH = new Float32Array(N * N);
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) TH[i * N + j] = terrainAt(i * TER_STEP - TER_HALF, j * TER_STEP - TER_HALF);
+    const at = (i, j) => TH[clamp(i, 0, N - 1) * N + clamp(j, 0, N - 1)];
+    const NC = 8, CS = 50, VS = CS + 1, chunks = [];
+    for (let cj = 0; cj < NC; cj++) {
+      for (let ci = 0; ci < NC; ci++) {
+        const data = new Float32Array(VS * VS * 6);
+        let o = 0, hs = 0;
+        for (let a = 0; a < VS; a++) {
+          for (let b = 0; b < VS; b++) {
+            const gi = ci * CS + a, gj = cj * CS + b, y = at(gi, gj);
+            const nx = at(gi - 1, gj) - at(gi + 1, gj), nz = at(gi, gj - 1) - at(gi, gj + 1), nl = Math.hypot(nx, 2 * TER_STEP, nz);
+            data[o++] = gi * TER_STEP - TER_HALF; data[o++] = y; data[o++] = gj * TER_STEP - TER_HALF;
+            data[o++] = nx / nl; data[o++] = 2 * TER_STEP / nl; data[o++] = nz / nl;
+            hs += y;
+          }
+        }
+        const vbo = g.createBuffer();
+        g.bindBuffer(g.ARRAY_BUFFER, vbo); g.bufferData(g.ARRAY_BUFFER, data, g.STATIC_DRAW);
+        chunks.push({ vbo, cx: (ci * CS + CS / 2) * TER_STEP - TER_HALF, cz: (cj * CS + CS / 2) * TER_STEP - TER_HALF, cy: hs / (VS * VS) });
+      }
+    }
+    // the same index lists serve every chunk: full detail, half and a fifth
+    const lods = [1, 2, 5].map(step => {
+      const idx = [];
+      for (let a = 0; a < CS; a += step) {
+        for (let b = 0; b < CS; b += step) {
+          const i0 = a * VS + b, i1 = (a + step) * VS + b, i2 = (a + step) * VS + b + step, i3 = a * VS + b + step;
+          idx.push(i0, i1, i2, i0, i2, i3);
+        }
+      }
+      const ibo = g.createBuffer();
+      g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, ibo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), g.STATIC_DRAW);
+      return { ibo, count: idx.length };
+    });
+    // a coarse skirt out to 24 km, kept a few metres under the main mesh, so the land never ends in a visible edge
+    const SK = 25, skirt = new Float32Array(SK * SK * 6), skIdx = [];
+    for (let a = 0; a < SK; a++) for (let b = 0; b < SK; b++) {
+      const x = -24000 + a * 2000, z = -24000 + b * 2000, k = (a * SK + b) * 6;
+      skirt[k] = x; skirt[k + 1] = terrainAt(x, z) - 4; skirt[k + 2] = z; skirt[k + 3] = 0; skirt[k + 4] = 1; skirt[k + 5] = 0;
+    }
+    for (let a = 0; a < SK - 1; a++) for (let b = 0; b < SK - 1; b++) skIdx.push(a * SK + b, (a + 1) * SK + b, (a + 1) * SK + b + 1, a * SK + b, (a + 1) * SK + b + 1, a * SK + b + 1);
+    const skVbo = g.createBuffer(), skIbo = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, skVbo); g.bufferData(g.ARRAY_BUFFER, skirt, g.STATIC_DRAW);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, skIbo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, new Uint16Array(skIdx), g.STATIC_DRAW);
+    const aPos = loc('aPos'), aNor = loc('aNor');
+    return { g, prog, uni, aPos, aNor, chunks, lods, skVbo, skIbo, skCount: skIdx.length };
+  } catch (e) {
+    console.warn('The WebGL ground could not start; using the flat-colour ground.', e);
+    return null;
+  }
+}
+// draws the ground for the current camera: sky and haze colours come from the 2D side
+function drawTerrainGL(eye, cr, cu, cf, hazeRGB, L) {
+  const T = terrainGL, g = T.g, u = T.uni;
+  g.clearColor(0, 0, 0, 0);
+  g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+  g.enable(g.DEPTH_TEST);
+  g.disable(g.CULL_FACE);
+  g.useProgram(T.prog);
+  g.uniform3fv(u.uEye, eye); g.uniform3fv(u.uR, cr); g.uniform3fv(u.uU, cu); g.uniform3fv(u.uF, cf);
+  g.uniform1f(u.uFocal, F); g.uniform1f(u.uHalfW, W / 2); g.uniform1f(u.uHalfH, H / 2); g.uniform1f(u.uNear, NEAR); g.uniform1f(u.uFar, 40000);
+  g.uniform3fv(u.uSun, sun);
+  g.uniform3f(u.uHaze, hazeRGB[0] / 255, hazeRGB[1] / 255, hazeRGB[2] / 255);
+  g.uniform3f(u.uRock, LAND.rock[0] / 255, LAND.rock[1] / 255, LAND.rock[2] / 255);
+  const tint = LAND.tint || [0, 0, 0];
+  g.uniform3f(u.uTint, tint[0] / 255, tint[1] / 255, tint[2] / 255);
+  g.uniform1f(u.uTintK, LAND.tint ? LAND.tintK : 0);
+  g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd);
+  g.uniform1f(u.uTime, performance.now() / 1000); g.uniform1f(u.uWater, WATER);
+  g.uniform1f(u.uRockH, LAND.rockH); g.uniform1f(u.uSnowH, LAND.snowH);
+  const bind = (vbo, ibo) => {
+    g.bindBuffer(g.ARRAY_BUFFER, vbo);
+    g.enableVertexAttribArray(T.aPos); g.vertexAttribPointer(T.aPos, 3, g.FLOAT, false, 24, 0);
+    g.enableVertexAttribArray(T.aNor); g.vertexAttribPointer(T.aNor, 3, g.FLOAT, false, 24, 12);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, ibo);
+  };
+  bind(T.skVbo, T.skIbo);
+  g.drawElements(g.TRIANGLES, T.skCount, g.UNSIGNED_SHORT, 0);
+  const halfX = W / 2 / F, halfY = H / 2 / F;
+  for (const c of T.chunks) {
+    // skip chunks behind the camera or outside the view
+    const dx = c.cx - eye[0], dy = c.cy - eye[1], dz = c.cz - eye[2], R = 1500;
+    const zc = dx * cf[0] + dy * cf[1] + dz * cf[2];
+    if (zc + R < 0) continue;
+    if (Math.abs(dx * cr[0] + dy * cr[1] + dz * cr[2]) > (zc + R) * halfX + R) continue;
+    if (Math.abs(dx * cu[0] + dy * cu[1] + dz * cu[2]) > (zc + R) * halfY + R) continue;
+    const d = Math.hypot(dx, dz), lod = T.lods[d < 2200 ? 0 : d < 5000 ? 1 : 2];
+    bind(c.vbo, lod.ibo);
+    g.drawElements(g.TRIANGLES, lod.count, g.UNSIGNED_SHORT, 0);
+  }
+}
+// true when a hill stands between the eye and a point, so a road or tree behind it is not drawn on top of the hill
+function hiddenByLand(eye, pt) {
+  for (let i = 1; i <= 7; i++) {
+    const t = i / 8, x = eye[0] + (pt[0] - eye[0]) * t, z = eye[2] + (pt[2] - eye[2]) * t, y = eye[1] + (pt[1] - eye[1]) * t;
+    if (y < terrainAt(x, z) - 1) return true;
+  }
+  return false;
+}
+
 // ---------- pilots: sign in, create a pilot, switch pilot
 // ---------- accounts: pilots and saves live on the server, so any device can sign in.
 // This browser keeps a copy of the save, so the game still runs when there is no wifi.
@@ -4992,6 +5219,7 @@ function takePhoto() {
   out.width = canvas.width; out.height = canvas.height;
   const o = out.getContext('2d');
   o.drawImage(canvas, 0, 0);
+  if (terrainGL) { o.drawImage(tglCanvas, 0, 0, out.width, out.height); o.drawImage(objCanvas, 0, 0, out.width, out.height); }
   o.drawImage(glCanvas, 0, 0, out.width, out.height);
   const stamp = new Date().toLocaleString();
   o.font = `${Math.round(out.height / 40)}px ui-monospace, Menlo, monospace`;
@@ -5051,6 +5279,8 @@ function frame(now) {
   if (snapRequested) { snapRequested = false; takePhoto(); }
   requestAnimationFrame(frame);
 }
+terrainGL = initTerrainGL();
+if (!terrainGL) { tglCanvas.style.display = 'none'; objCanvas.style.display = 'none'; }
 resumeSession();
 requestAnimationFrame(frame);
 </script>
