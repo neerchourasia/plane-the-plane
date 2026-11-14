@@ -569,15 +569,35 @@ function buildAircraft(m) {
     const c = Math.cos(th), s = Math.sin(th);
     if (t > 1 - sp.nose * 0.6 && s > 0.3 && Math.abs(c) < 0.75) return WINDOW;     // cockpit glass
     if (sp.radome && t > 1 - 0.035) return sp.radome;                               // dark nose cone
-    if (Math.abs(c) > 0.9 && win && t > win[0] && t < win[1]) {
-      if (s > 0.1 && s < 0.4) return WINDOW;                                         // passenger windows
-      if (sp.stripe && s < -0.05 && s > -0.3) return sp.stripe;                      // livery stripe
-    }
+    if (Math.abs(c) > 0.9 && win && t > win[0] && t < win[1] && sp.stripe && s < -0.05 && s > -0.3) return sp.stripe;   // livery stripe
     if (sp.belly && s < -0.4) return sp.belly;                                       // a different colour underneath
     return sp.body;
   });
   flat(rings[0], sp.tailCap || sp.body);
   flat(rings[N - 1], sp.radome || sp.body);
+
+  // passenger windows: small dark panes in a row along each side (a second row on a double deck, and on a hump)
+  if (win) {
+    const w = Math.max(0.22, R * 0.11), hh = Math.max(0.26, R * 0.15), step = w * 2.3;
+    const sideX = (z, y) => {
+      const t = (z + L / 2) / L, r = radiusAt(t), sn = (y - droopAt(t)) / (r * upAt(t));
+      return Math.abs(sn) > 0.97 ? null : r * Math.sqrt(1 - sn * sn);
+    };
+    const rows = [{ y: R * 0.2, a: win[0], b: win[1] }];
+    if (sp.deck) rows.push({ y: R * 0.8, a: win[0] + 0.04, b: win[1] - 0.08 });
+    if (sp.hump) rows.push({ y: R * 0.86, a: sp.hump[0] + 0.03, b: sp.hump[1] - 0.03 });
+    for (const row of rows) {
+      for (let z = -L / 2 + row.a * L; z < -L / 2 + row.b * L; z += step) {
+        for (const k of [-1, 1]) {
+          const q = [[z, row.y], [z + w, row.y], [z + w, row.y + hh], [z, row.y + hh]].map(([zz, yy]) => {
+            const x = sideX(zz, yy);
+            return x === null ? null : [k * (x + 0.012), yy, zz];
+          });
+          if (q.every(Boolean)) flat(q, WINDOW);
+        }
+      }
+    }
+  }
 
   // fighter canopy: a glass bubble on top of the body
   if (sp.canopy) {
@@ -597,10 +617,16 @@ function buildAircraft(m) {
     const Y = s => wg.y + (wg.dih || 0) * s;
     return { rootS, LE, TE, Y };
   };
+  // wing thickness: thickest at the root, thinner toward the tip
+  const thickAt = (wg, s) => { const u = (s - R * 0.6) / (wg.span - R * 0.6); return wg.cr * 0.1 * (1 - u) + wg.ct * 0.07 * u; };
   const surface = (wg, col, accent, lightsOn) => {
-    const g = planform(wg), r0 = g.rootS, S = wg.span;
+    const g = planform(wg), r0 = g.rootS, S = wg.span, t0 = thickAt(wg, r0), tS = thickAt(wg, S);
     for (const k of [-1, 1]) {
       flat([[k * r0, g.Y(r0), g.LE(r0)], [k * S, g.Y(S), g.LE(S)], [k * S, g.Y(S), g.TE(S)], [k * r0, g.Y(r0), g.TE(r0)]], col);
+      flat([[k * r0, g.Y(r0) - t0, g.LE(r0)], [k * S, g.Y(S) - tS, g.LE(S)], [k * S, g.Y(S) - tS, g.TE(S)], [k * r0, g.Y(r0) - t0, g.TE(r0)]], col);
+      flat([[k * r0, g.Y(r0), g.LE(r0)], [k * S, g.Y(S), g.LE(S)], [k * S, g.Y(S) - tS, g.LE(S)], [k * r0, g.Y(r0) - t0, g.LE(r0)]], col);
+      flat([[k * r0, g.Y(r0), g.TE(r0)], [k * S, g.Y(S), g.TE(S)], [k * S, g.Y(S) - tS, g.TE(S)], [k * r0, g.Y(r0) - t0, g.TE(r0)]], col);
+      flat([[k * S, g.Y(S), g.LE(S)], [k * S, g.Y(S), g.TE(S)], [k * S, g.Y(S) - tS, g.TE(S)], [k * S, g.Y(S) - tS, g.LE(S)]], col);
       if (wg.winglet) {
         const h = wg.winglet, y = g.Y(S);
         flat([[k * S, y, g.LE(S)], [k * S, y, g.TE(S)], [k * (S + 0.4), y + h, g.TE(S) - 0.8], [k * (S + 0.4), y + h, g.LE(S) - 0.3]], accent);
@@ -642,7 +668,8 @@ function buildAircraft(m) {
     for (const k of [-1, 1]) {
       for (const dy of [0.015, -0.015]) {
         const z0 = g.TE(s0) + (1 - frac) * (lead(s0) - g.TE(s0)), z1 = g.TE(s1) + (1 - frac) * (lead(s1) - g.TE(s1));
-        flat([[k * s0, g.Y(s0) + dy, z0], [k * s1, g.Y(s1) + dy, z1], [k * s1, g.Y(s1) + dy, z1 - w], [k * s0, g.Y(s0) + dy, z0 - w]], HINGE);
+        const th = wg === sp.wing && dy < 0 ? thickAt(wg, 0) : 0, y0 = g.Y(s0) + dy - (wg === sp.wing && dy < 0 ? thickAt(wg, s0) : 0), y1 = g.Y(s1) + dy - (wg === sp.wing && dy < 0 ? thickAt(wg, s1) : 0);
+        flat([[k * s0, y0, z0], [k * s1, y1, z1], [k * s1, y1, z1 - w], [k * s0, y0, z0 - w]], HINGE);
       }
     }
   };
@@ -691,7 +718,7 @@ function buildAircraft(m) {
       for (const k of [-1, 1]) {
         nacelle(k * e.s, g.Y(e.s) - e.drop, g.LE(e.s) + e.fwd, e.r, e.len);
         // the pylon: a thin plate from the wing's underside down to the top of the engine
-        const ch = g.LE(e.s) - g.TE(e.s), yTop = g.Y(e.s) + 0.02, yEng = g.Y(e.s) - e.drop + e.r * 0.7;
+        const ch = g.LE(e.s) - g.TE(e.s), yTop = g.Y(e.s) - thickAt(sp.wing, e.s) + 0.06, yEng = g.Y(e.s) - e.drop + e.r * 0.7;
         flat([[k * e.s, yTop, g.LE(e.s) - ch * 0.1], [k * e.s, yTop, g.LE(e.s) - ch * 0.5], [k * e.s, yEng, g.LE(e.s) + e.fwd - e.len * 0.55], [k * e.s, yEng, g.LE(e.s) + e.fwd - e.len * 0.1]], sp.wing.col);
       }
     } else {
