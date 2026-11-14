@@ -3743,7 +3743,7 @@ function render() {
       const h = (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4;
       // mostly meadow, with patches of forest and dry field; rock and snow higher up
       const roll = hash2(gx, gz);
-      if (useGL && roll >= 0.12) continue;   // only the forest cells matter here: they get trees
+      if (useGL && (terrainGL.trees || roll >= 0.12)) continue;   // the WebGL trees replace these; without them only the old forest cells get flat trees
       let base = mix(GROUND_A, GROUND_B, hash2(gx + 101, gz - 77));
       if (roll < 0.12) {
         base = [44, 96, 48];
@@ -4791,6 +4791,7 @@ precision mediump float;
 #endif
 uniform vec3 uEye, uSun, uHaze, uRock, uTint;
 uniform float uDim, uFogStart, uFogEnd, uTime, uWater, uRockH, uSnowH, uTintK;
+uniform sampler2D uMap;
 varying vec3 vW; varying vec3 vN;
 float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p) {
@@ -4822,12 +4823,13 @@ void main() {
   } else {
     vec2 q = xz + 70.0 * vec2(vn(xz / 200.0), vn(xz / 200.0 + 9.0));     // wobble the patch borders
     vec2 cell = floor(q / 125.0);
-    float roll = h21(cell);
+    // the forest map (made on the CPU, so the trees stand where the forest floor is)
+    vec4 fm = texture2D(uMap, clamp((xz + 6000.0) / 12000.0, 0.0, 1.0));
+    float forest = smoothstep(0.32, 0.55, fm.r + (vn(xz * 0.045) - 0.5) * 0.3);
     float macro = fbm(xz / 650.0);
     vec3 base = mix(vec3(0.27, 0.49, 0.23), vec3(0.22, 0.43, 0.19), macro);
-    if (roll < 0.12) { base = vec3(0.16, 0.36, 0.18) * (0.72 + 0.55 * vn(xz * 0.45)); }              // forest canopy
-    else if (roll < 0.2) { base = vec3(0.59, 0.54, 0.33); }                                          // dry grass
-    else if (N.y > 0.93 && h < 300.0) {
+    base = mix(base, vec3(0.59, 0.54, 0.33), fm.g * 0.9);                                              // dry grass
+    if (N.y > 0.93 && h < 300.0 && forest < 0.2 && fm.g < 0.3) {
       // flat low ground: a patchwork of fields with furrows
       vec2 fc = floor(cell / 2.0);
       float fr = h21(fc + 3.7);
@@ -4837,7 +4839,10 @@ void main() {
       field *= 0.92 + 0.14 * fur * (1.0 - far);
       base = mix(base, field, fr < 0.7 ? 0.85 : 0.0);
     }
-    if (uTintK > 0.0 && roll >= 0.12) base = mix(base, uTint, uTintK);
+    // the forest floor: dark, with needles and leaf litter
+    vec3 floorC = mix(vec3(0.15, 0.3, 0.15), vec3(0.23, 0.22, 0.12), vn(xz * 0.2)) * (0.7 + 0.5 * vn(xz * 0.6));
+    base = mix(base, floorC, forest);
+    if (uTintK > 0.0) base = mix(base, uTint, uTintK * (1.0 - forest));
     // grain at several scales
     base *= 0.8 + 0.24 * fbm(xz / 38.0) + 0.1 * vn(xz * 0.21) + 0.06 * vn(xz * 1.3) * (1.0 - far);
     // a sandy beach along the water
@@ -4945,6 +4950,309 @@ void main() {
   col = mix(col, uHaze, fog);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
+// ---------- trees in WebGL: a forest map shared by the ground and the trees, real 3D conifers and broadleaf trees near the
+// plane, and cut-out billboards farther away. Tens of thousands of trees, with wind in the crowns.
+function buildForestMap() {
+  const SZ = 256, tex = new Uint8Array(SZ * SZ * 4);
+  const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const treeLine = LAND.rockH > 9000 ? 650 : LAND.rockH * 0.95;
+  for (let tz = 0; tz < SZ; tz++) {
+    for (let tx = 0; tx < SZ; tx++) {
+      const x = (tx + 0.5) / SZ * 12000 - 6000, z = (tz + 0.5) / SZ * 12000 - 6000;
+      const h = terrainAt(x, z);
+      const nx = terrainAt(x + 20, z) - terrainAt(x - 20, z), nz = terrainAt(x, z + 20) - terrainAt(x, z - 20), ny = 40 / Math.hypot(nx, 40, nz);
+      const n = 0.55 * valueNoise(x / 420 + 3, z / 420 - 5) + 0.3 * valueNoise(x / 130 + 11, z / 130 + 2) + 0.15 * valueNoise(x / 45, z / 45);
+      // where trees can grow: dry land above the shore, below the tree line, on gentle slopes, not on an airfield
+      let suit = sstep(WATER + 2.5, WATER + 6, h) * (1 - sstep(treeLine - 90, treeLine, h)) * sstep(0.74, 0.84, ny);
+      if (onAirfield(x, z, 300)) suit = 0;
+      const forest = sstep(0.5, 0.6, n) * suit;
+      const dry = sstep(0.66, 0.74, valueNoise(x / 300 + 50, z / 300 + 9)) * (1 - forest);
+      const o = (tz * SZ + tx) * 4;
+      tex[o] = forest * 255; tex[o + 1] = dry * 255; tex[o + 2] = suit * 255; tex[o + 3] = 255;
+    }
+  }
+  return { tex, SZ };
+}
+// the trees: positions on a jittered 28 m grid, thickest where the forest map is, grouped in 500 m chunks
+function buildTreeData(map) {
+  const SZ = map.SZ, tex = map.tex;
+  const chan = (a, b, c) => tex[(clamp(b, 0, SZ - 1) * SZ + clamp(a, 0, SZ - 1)) * 4 + c] / 255;
+  const sample = (x, z, c) => {
+    const fx = clamp((x + 6000) / 12000 * SZ - 0.5, 0, SZ - 1.001), fz = clamp((z + 6000) / 12000 * SZ - 0.5, 0, SZ - 1.001);
+    const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
+    return (chan(i, j, c) * (1 - u) + chan(i + 1, j, c) * u) * (1 - v) + (chan(i, j + 1, c) * (1 - u) + chan(i + 1, j + 1, c) * u) * v;
+  };
+  // keep trees off buildings, roads and rivers
+  const bk = new Map();
+  for (const b of buildings) { const k = Math.floor(b.x / 150) + ',' + Math.floor(b.z / 150); if (!bk.has(k)) bk.set(k, []); bk.get(k).push(b); }
+  const nearBuilding = (x, z) => {
+    const cx = Math.floor(x / 150), cz = Math.floor(z / 150);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (const q of bk.get((cx + a) + ',' + (cz + b)) || []) if (Math.abs(x - q.x) < q.w / 2 + 9 && Math.abs(z - q.z) < q.d / 2 + 9) return true;
+    return false;
+  };
+  const nearRoad = (x, z) => roads.some(([a, b]) => {
+    const dx = b.x - a.x, dz = b.z - a.z, t = clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1), 0, 1);
+    return Math.hypot(x - a.x - dx * t, z - a.z - dz * t) < 24;
+  });
+  const nearRiver = (x, z) => RIVERS.some(r => Math.abs(x - riverX(r, z)) < 40);
+  const NC = 12, CH = 1000;   // 12 x 12 chunks of 1 km
+  const conif = Array.from({ length: NC * NC }, () => []), broad = Array.from({ length: NC * NC }, () => []);
+  const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1 })[REGION.id] : 0.45;
+  const STEP = 23, G = Math.floor(12000 / STEP);
+  for (let gi = 0; gi < G; gi++) {
+    for (let gj = 0; gj < G; gj++) {
+      const x = -6000 + (gi + hash2(gi, gj + 71)) * STEP, z = -6000 + (gj + hash2(gi + 17, gj)) * STEP;
+      const d = sample(x, z, 0);
+      const keep = d > 0.3 ? hash2(gi * 7 + 3, gj * 11) < Math.min(0.92, 0.35 + d * 0.8) : (sample(x, z, 2) > 0.6 && hash2(gi * 13, gj * 3) < 0.01);
+      if (!keep || nearBuilding(x, z) || nearRoad(x, z) || nearRiver(x, z)) continue;
+      const y = terrainAt(x, z);
+      if (y < WATER + 2) continue;
+      const r1 = hash2(gi + 5, gj * 9 + 1), r2 = hash2(gi * 3 + 1, gj + 8), r3 = hash2(gi * 5 + 2, gj * 7), rot = hash2(gi * 2, gj * 2 + 1) * 6.2832;
+      const isConif = r1 < coniferFrac + (y > 300 ? 0.2 : 0);
+      const ci = clamp(Math.floor((z + 6000) / CH), 0, NC - 1) * NC + clamp(Math.floor((x + 6000) / CH), 0, NC - 1);
+      (isConif ? conif : broad)[ci].push(x, y - 0.3, z, 0.75 + r2 * 0.8, rot, r3, isConif ? 1 : 0);
+    }
+  }
+  // one buffer, grouped by chunk and kind, so each chunk's trees are a contiguous range
+  let total = 0;
+  for (let c = 0; c < NC * NC; c++) total += (conif[c].length + broad[c].length) / 7;
+  const data = new Float32Array(total * 7), chunks = [];
+  let at = 0;
+  for (let c = 0; c < NC * NC; c++) {
+    const ci = c % NC, cj = Math.floor(c / NC), cs = at;
+    data.set(conif[c], at * 7); at += conif[c].length / 7;
+    const bs = at;
+    data.set(broad[c], at * 7); at += broad[c].length / 7;
+    chunks.push({ cx: -6000 + (ci + 0.5) * CH, cz: -6000 + (cj + 0.5) * CH, cs, cn: bs - cs, bs, bn: at - bs });
+  }
+  return { data, total, chunks };
+}
+// the two tree shapes as small meshes: a conifer of four stacked cones, and a broadleaf tree of lumpy blobs
+function treeTemplates(g) {
+  const make = build => {
+    const V = [], I = [];
+    const addV = (p, n, part, hv) => { V.push(p[0], p[1], p[2], n[0], n[1], n[2], part, hv); return V.length / 8 - 1; };
+    build(V, I, addV);
+    const vbo = g.createBuffer(), ibo = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, vbo); g.bufferData(g.ARRAY_BUFFER, new Float32Array(V), g.STATIC_DRAW);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, ibo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, new Uint16Array(I), g.STATIC_DRAW);
+    return { vbo, ibo, count: I.length };
+  };
+  const nrm = v => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
+  const prism = (V, I, addV, r, y0, y1, H) => {
+    const base = V.length / 8;
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.78, c = Math.cos(a), sn = Math.sin(a); addV([c * r, y0, sn * r], [c, 0, sn], 0, y0 / H); addV([c * r, y1, sn * r], [c, 0, sn], 0, y1 / H); }
+    for (let k = 0; k < 4; k++) { const a0 = base + k * 2, a1 = base + ((k + 1) % 4) * 2; I.push(a0, a1, a0 + 1, a1, a1 + 1, a0 + 1); }
+  };
+  const conifer = make((V, I, addV) => {
+    const H = 13;
+    prism(V, I, addV, 0.3, 0, 2.6, H);
+    // four cones, each narrower than the one below, with a little droop
+    [[1.5, 4.8, 3.0], [3.9, 4.2, 2.45], [6.1, 3.7, 1.85], [8.1, 3.4, 1.25]].forEach(([y0, h, r]) => {
+      const S = 8, base = V.length / 8;
+      for (let k = 0; k < S; k++) { const a = k / S * 6.2832, c = Math.cos(a), sn = Math.sin(a); addV([c * r, y0, sn * r], nrm([c * h, r * 0.9, sn * h]), 1, y0 / H); }
+      const apex = addV([0, y0 + h, 0], [0, 1, 0], 1, Math.min(1, (y0 + h) / H));
+      for (let k = 0; k < S; k++) I.push(base + k, base + (k + 1) % S, apex);
+    });
+  });
+  const broadleaf = make((V, I, addV) => {
+    const H = 10;
+    prism(V, I, addV, 0.34, 0, 4.4, H);
+    // lumpy blobs: three rings of seven points around each centre
+    [[0, 6.2, 0, 3.2], [1.7, 5.3, 0.9, 2.4], [-1.5, 5.6, -1.1, 2.5], [0.3, 7.9, 0.2, 2.1]].forEach(([cx, cy, cz, r], bi) => {
+      const rings = [0.5, 1.5708, 2.6], L = 7, base = V.length / 8;
+      const top = addV([cx, cy + r * 0.85, cz], [0, 1, 0], 1, Math.min(1, (cy + r) / H));
+      rings.forEach((phi, ri) => {
+        for (let k = 0; k < L; k++) {
+          const th = k / L * 6.2832 + ri * 0.4, j = 0.86 + 0.28 * hash2(bi * 31 + ri * 7 + k, 99);
+          const d = [Math.sin(phi) * Math.cos(th), Math.cos(phi) * 0.85, Math.sin(phi) * Math.sin(th)];
+          addV([cx + d[0] * r * j, cy + d[1] * r * j, cz + d[2] * r * j], nrm(d), 1, Math.min(1, (cy + d[1] * r) / H));
+        }
+      });
+      const bot = addV([cx, cy - r * 0.8, cz], [0, -1, 0], 1, Math.max(0, (cy - r * 0.8) / H));
+      for (let k = 0; k < L; k++) I.push(top, base + 1 + k, base + 1 + (k + 1) % L);
+      for (let ri = 0; ri < 2; ri++) for (let k = 0; k < L; k++) {
+        const a = base + 1 + ri * L + k, b = base + 1 + ri * L + (k + 1) % L, c = a + L, d = b + L;
+        I.push(a, c, b, b, c, d);
+      }
+      for (let k = 0; k < L; k++) I.push(bot, base + 1 + 2 * L + (k + 1) % L, base + 1 + 2 * L + k);
+    });
+  });
+  return { conifer, broadleaf };
+}
+const TREE_PROJ = `
+uniform vec3 uEye, uR, uU, uF;
+uniform float uFocal, uHalfW, uHalfH, uNear, uFar;
+vec4 project(vec3 w) {
+  vec3 d = w - uEye;
+  vec3 c = vec3(dot(d, uR), dot(d, uU), dot(d, uF));
+  float z = (c.z - uNear) / (uFar - uNear) * 2.0 - 1.0;
+  return vec4(c.x * uFocal / uHalfW, c.y * uFocal / uHalfH, z * c.z, c.z);
+}`;
+const TREE_NOISE = `
+float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float vn(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}`;
+const TREE_VS = TREE_PROJ + `
+attribute vec3 aP; attribute vec3 aN; attribute vec2 aPart; attribute vec3 iPos; attribute vec4 iA;
+uniform float uTime, uNearTrees;
+varying vec3 vW; varying vec3 vN; varying vec2 vPart; varying float vHue; varying float vType;
+void main() {
+  float sc = iA.x, cs = cos(iA.y), sn = sin(iA.y);
+  vec3 p = aP * sc;
+  vec3 pr = vec3(p.x * cs - p.z * sn, p.y, p.x * sn + p.z * cs);
+  vec3 nr = vec3(aN.x * cs - aN.z * sn, aN.y, aN.x * sn + aN.z * cs);
+  vec3 w = iPos + pr;
+  float sway = sin(uTime * 1.4 + iPos.x * 0.09 + iPos.z * 0.07) * 0.55 * sc * aPart.y * aPart.y;
+  w.x += sway; w.z += sway * 0.6;
+  gl_Position = project(w);
+  if (length(w - uEye) > uNearTrees + 80.0) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  vW = w; vN = nr; vPart = aPart; vHue = iA.z; vType = iA.w;
+}`;
+const TREE_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec3 uEye, uSun, uHaze;
+uniform float uDim, uFogStart, uFogEnd;
+varying vec3 vW; varying vec3 vN; varying vec2 vPart; varying float vHue; varying float vType;` + TREE_NOISE + `
+void main() {
+  float dist = length(uEye - vW);
+  vec3 N = normalize(vN);
+  vec3 col;
+  if (vPart.x < 0.5) {
+    col = vec3(0.3, 0.21, 0.14) * (0.8 + 0.4 * vn(vec2(vW.y * 2.0, vW.x + vW.z)));
+  } else {
+    vec3 b = mix(vec3(0.17, 0.34, 0.12), vec3(0.07, 0.21, 0.11), vType);
+    b *= 0.78 + 0.5 * vHue;
+    b = mix(b, b * vec3(1.25, 1.1, 0.7), vHue * vHue * 0.35);
+    b *= 0.72 + 0.46 * vn(vW.xz * 1.9 + vW.y * 2.3);       // leaf and needle texture
+    b *= 0.52 + 0.62 * vPart.y;                             // the lower crown is in shade
+    col = b;
+  }
+  float diff = max(dot(N, uSun), 0.0);
+  col *= (0.34 + 0.22 * N.y + 0.66 * diff) * uDim;
+  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  col = mix(col, uHaze, fog);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+const TIMP_VS = TREE_PROJ + `
+attribute vec2 aQ; attribute vec3 iPos; attribute vec4 iA;
+uniform float uTime, uNearTrees;
+varying vec2 vQ; varying float vHue; varying float vType; varying vec3 vW;
+void main() {
+  float sc = iA.x, type = iA.w;
+  float width = (type > 0.5 ? 5.6 : 7.2) * sc, height = (type > 0.5 ? 13.0 : 10.2) * sc;
+  vec3 toEye = vec3(uEye.x - iPos.x, 0.0, uEye.z - iPos.z);
+  vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), toEye + vec3(0.0001, 0.0, 0.0001)));
+  vec3 w = iPos + right * aQ.x * width + vec3(0.0, aQ.y * height, 0.0);
+  w.x += sin(uTime * 1.4 + iPos.x * 0.09 + iPos.z * 0.07) * 0.55 * sc * aQ.y * aQ.y;
+  gl_Position = project(w);
+  if (length(uEye - iPos) < uNearTrees) gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+  vQ = aQ; vHue = iA.z; vType = type; vW = w;
+}`;
+const TIMP_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec3 uEye, uSun, uHaze;
+uniform float uDim, uFogStart, uFogEnd;
+varying vec2 vQ; varying float vHue; varying float vType; varying vec3 vW;` + TREE_NOISE + `
+void main() {
+  float u = vQ.x, v = vQ.y;
+  vec3 col;
+  if (vType > 0.5) {
+    float w = (1.0 - v) * 0.5 * (0.84 + 0.16 * sin(v * 22.0 + vHue * 6.0));
+    if (v > 0.12) { if (abs(u) > w) discard; col = vec3(0.07, 0.21, 0.11) * (0.78 + 0.5 * vHue); }
+    else { if (abs(u) > 0.04) discard; col = vec3(0.3, 0.21, 0.14); }
+  } else {
+    vec2 e = vec2(u / 0.5, (v - 0.64) / 0.34);
+    float edge = 1.0 + 0.16 * (vn(vec2(u * 9.0, v * 9.0 + vHue * 20.0)) - 0.5);
+    if (v > 0.3 && dot(e, e) < edge) col = mix(vec3(0.17, 0.34, 0.12), vec3(0.28, 0.4, 0.13), vHue * vHue) * (0.78 + 0.5 * vHue);
+    else if (v < 0.46 && abs(u) < 0.045) col = vec3(0.3, 0.21, 0.14);
+    else discard;
+  }
+  col *= 0.72 + 0.46 * vn(vec2(u, v) * 13.0 + vHue * 31.0);
+  col *= 0.55 + 0.6 * v;
+  col *= (0.5 + 0.5 * uSun.y) * uDim;
+  float dist = length(uEye - vW);
+  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  col = mix(col, uHaze, fog);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+// compile and set up the tree programs and buffers; null when instancing is not available
+function initTreesGL(g, compile, map) {
+  const ext = g.getExtension('ANGLE_instanced_arrays');
+  if (!ext) return null;
+  const link = (vs, fs, names) => {
+    const pr = g.createProgram();
+    g.attachShader(pr, compile(g.VERTEX_SHADER, vs)); g.attachShader(pr, compile(g.FRAGMENT_SHADER, fs));
+    names.forEach((n, i) => g.bindAttribLocation(pr, i, n));
+    g.linkProgram(pr);
+    if (!g.getProgramParameter(pr, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(pr));
+    return pr;
+  };
+  const dprog = link(TREE_VS, TREE_FS, ['aP', 'aN', 'aPart', 'iPos', 'iA']);
+  const iprog = link(TIMP_VS, TIMP_FS, ['aQ', 'iPos', 'iA']);
+  const names = ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uDim', 'uFogStart', 'uFogEnd', 'uTime', 'uNearTrees'];
+  const du = {}, iu = {};
+  for (const n of names) { du[n] = g.getUniformLocation(dprog, n); iu[n] = g.getUniformLocation(iprog, n); }
+  const trees = buildTreeData(map);
+  const inst = g.createBuffer();
+  g.bindBuffer(g.ARRAY_BUFFER, inst); g.bufferData(g.ARRAY_BUFFER, trees.data, g.STATIC_DRAW);
+  const quad = g.createBuffer();
+  g.bindBuffer(g.ARRAY_BUFFER, quad); g.bufferData(g.ARRAY_BUFFER, new Float32Array([-0.5, 0, 0.5, 0, -0.5, 1, 0.5, 1]), g.STATIC_DRAW);
+  return { ext, dprog, iprog, du, iu, inst, quad, total: trees.total, chunks: trees.chunks, tpl: treeTemplates(g) };
+}
+function drawTreesGL(T, g, eye, cr, cu, cf, hazeRGB, L) {
+  const TR = T.trees, ext = TR.ext, NEAR_TREES = 650;
+  const setU = (u) => {
+    g.uniform3fv(u.uEye, eye); g.uniform3fv(u.uR, cr); g.uniform3fv(u.uU, cu); g.uniform3fv(u.uF, cf);
+    g.uniform1f(u.uFocal, F); g.uniform1f(u.uHalfW, W / 2); g.uniform1f(u.uHalfH, H / 2); g.uniform1f(u.uNear, NEAR); g.uniform1f(u.uFar, 40000);
+    g.uniform3fv(u.uSun, sun); g.uniform3f(u.uHaze, hazeRGB[0] / 255, hazeRGB[1] / 255, hazeRGB[2] / 255);
+    g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd);
+    g.uniform1f(u.uTime, performance.now() / 1000); g.uniform1f(u.uNearTrees, NEAR_TREES);
+  };
+  // far trees: one billboard each, drawn in a single call
+  g.useProgram(TR.iprog);
+  setU(TR.iu);
+  g.bindBuffer(g.ARRAY_BUFFER, TR.quad);
+  g.enableVertexAttribArray(0); g.vertexAttribPointer(0, 2, g.FLOAT, false, 8, 0); ext.vertexAttribDivisorANGLE(0, 0);
+  g.bindBuffer(g.ARRAY_BUFFER, TR.inst);
+  g.enableVertexAttribArray(1); g.vertexAttribPointer(1, 3, g.FLOAT, false, 28, 0); ext.vertexAttribDivisorANGLE(1, 1);
+  g.enableVertexAttribArray(2); g.vertexAttribPointer(2, 4, g.FLOAT, false, 28, 12); ext.vertexAttribDivisorANGLE(2, 1);
+  ext.drawArraysInstancedANGLE(g.TRIANGLE_STRIP, 0, 4, TR.total);
+  // near trees: the real 3D shapes, drawn per chunk from the shared instance buffer
+  g.useProgram(TR.dprog);
+  setU(TR.du);
+  for (const [kind, tpl] of [[0, TR.tpl.conifer], [1, TR.tpl.broadleaf]]) {
+    g.bindBuffer(g.ARRAY_BUFFER, tpl.vbo);
+    g.enableVertexAttribArray(0); g.vertexAttribPointer(0, 3, g.FLOAT, false, 32, 0); ext.vertexAttribDivisorANGLE(0, 0);
+    g.enableVertexAttribArray(1); g.vertexAttribPointer(1, 3, g.FLOAT, false, 32, 12); ext.vertexAttribDivisorANGLE(1, 0);
+    g.enableVertexAttribArray(2); g.vertexAttribPointer(2, 2, g.FLOAT, false, 32, 24); ext.vertexAttribDivisorANGLE(2, 0);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, tpl.ibo);
+    g.enableVertexAttribArray(3); ext.vertexAttribDivisorANGLE(3, 1);
+    g.enableVertexAttribArray(4); ext.vertexAttribDivisorANGLE(4, 1);
+    for (const c of TR.chunks) {
+      const n = kind === 0 ? c.cn : c.bn;
+      if (!n || Math.hypot(c.cx - eye[0], c.cz - eye[2]) > NEAR_TREES + 80 + 710) continue;
+      const start = kind === 0 ? c.cs : c.bs;
+      g.bindBuffer(g.ARRAY_BUFFER, TR.inst);
+      g.vertexAttribPointer(3, 3, g.FLOAT, false, 28, start * 28);
+      g.vertexAttribPointer(4, 4, g.FLOAT, false, 28, start * 28 + 12);
+      ext.drawElementsInstancedANGLE(g.TRIANGLES, tpl.count, g.UNSIGNED_SHORT, 0, n);
+    }
+  }
+  // put the attribute state back the way the ground and buildings expect it
+  for (let l = 0; l < 5; l++) { ext.vertexAttribDivisorANGLE(l, 0); g.disableVertexAttribArray(l); }
+}
+
 // every building as a handful of quads in one buffer
 function buildBuildingMesh() {
   const data = [], idx = [];
@@ -5027,7 +5335,7 @@ function initTerrainGL() {
     g.linkProgram(prog);
     if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
     const loc = n => g.getAttribLocation(prog, n), uni = {};
-    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uRock', 'uTint', 'uDim', 'uFogStart', 'uFogEnd', 'uTime', 'uWater', 'uRockH', 'uSnowH', 'uTintK']) uni[n] = g.getUniformLocation(prog, n);
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uRock', 'uTint', 'uDim', 'uFogStart', 'uFogEnd', 'uTime', 'uWater', 'uRockH', 'uSnowH', 'uTintK', 'uMap']) uni[n] = g.getUniformLocation(prog, n);
     // heights of every grid point, with the runway platforms and lakes applied, and smooth normals from them
     const N = TER_N, TH = new Float32Array(N * N);
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) TH[i * N + j] = terrainAt(i * TER_STEP - TER_HALF, j * TER_STEP - TER_HALF);
@@ -5075,6 +5383,15 @@ function initTerrainGL() {
     g.bindBuffer(g.ARRAY_BUFFER, skVbo); g.bufferData(g.ARRAY_BUFFER, skirt, g.STATIC_DRAW);
     g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, skIbo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, new Uint16Array(skIdx), g.STATIC_DRAW);
     const aPos = loc('aPos'), aNor = loc('aNor');
+    // the forest map goes up as a texture the ground shader reads
+    const fmap = buildForestMap(), mapTex = g.createTexture();
+    g.bindTexture(g.TEXTURE_2D, mapTex);
+    g.texImage2D(g.TEXTURE_2D, 0, g.RGBA, fmap.SZ, fmap.SZ, 0, g.RGBA, g.UNSIGNED_BYTE, fmap.tex);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR);
+    g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE); g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE);
+    // the trees: if they cannot start, the ground still works and the old flat trees stay
+    let trees = null;
+    try { trees = initTreesGL(g, compile, fmap); } catch (e) { console.warn('The WebGL trees could not start.', e); }
     // the buildings: their own program and one buffer for all of them
     const bprog = g.createProgram();
     g.attachShader(bprog, compile(g.VERTEX_SHADER, BLD_VS));
@@ -5087,7 +5404,7 @@ function initTerrainGL() {
     const mesh = buildBuildingMesh(), bvbo = g.createBuffer(), bibo = g.createBuffer();
     g.bindBuffer(g.ARRAY_BUFFER, bvbo); g.bufferData(g.ARRAY_BUFFER, mesh.data, g.STATIC_DRAW);
     g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, bibo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, mesh.idx, g.STATIC_DRAW);
-    return { g, prog, uni, aPos, aNor, chunks, lods, skVbo, skIbo, skCount: skIdx.length, bprog, bu, ba, bvbo, bibo, bcount: mesh.idx.length };
+    return { g, prog, uni, aPos, aNor, chunks, lods, skVbo, skIbo, skCount: skIdx.length, mapTex, trees, bprog, bu, ba, bvbo, bibo, bcount: mesh.idx.length };
   } catch (e) {
     console.warn('The WebGL ground could not start; using the flat-colour ground.', e);
     return null;
@@ -5112,6 +5429,7 @@ function drawTerrainGL(eye, cr, cu, cf, hazeRGB, L) {
   g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd);
   g.uniform1f(u.uTime, performance.now() / 1000); g.uniform1f(u.uWater, WATER);
   g.uniform1f(u.uRockH, LAND.rockH); g.uniform1f(u.uSnowH, LAND.snowH);
+  g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, T.mapTex); g.uniform1i(u.uMap, 0);
   const bind = (vbo, ibo) => {
     g.bindBuffer(g.ARRAY_BUFFER, vbo);
     g.enableVertexAttribArray(T.aPos); g.vertexAttribPointer(T.aPos, 3, g.FLOAT, false, 24, 0);
@@ -5149,6 +5467,7 @@ function drawTerrainGL(eye, cr, cu, cf, hazeRGB, L) {
   g.drawElements(g.TRIANGLES, T.bcount, g.UNSIGNED_SHORT, 0);
   // leave the ground's attributes the way the next frame expects them
   for (const loc of [A.pos, A.nor, A.uv, A.col, A.kind, A.dim]) if (loc !== T.aPos && loc !== T.aNor) g.disableVertexAttribArray(loc);
+  if (T.trees) drawTreesGL(T, g, eye, cr, cu, cf, hazeRGB, L);
 }
 // true when a hill stands between the eye and a point, so a road or tree behind it is not drawn on top of the hill
 function hiddenByLand(eye, pt) {
