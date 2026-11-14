@@ -3822,6 +3822,16 @@ function update(dt) {
     }
   } else {
     p.pitch = clamp(p.pitch + pitchIn * 1.0 * auth * dt, -1.4, 1.4);
+    // a stall: below the stall speed the wing quits flying, the nose drops and a wing may go down. Push the nose forward and add power to
+    // pick up speed again; the break eases off as the airspeed comes back.
+    const stallV = stallSpeed(p);
+    if (!p.onGround && p.speed < stallV && !p.ap) {
+      const depth = clamp(1 - p.speed / stallV, 0, 1);
+      p.stalled = true;
+      p.pitch = clamp(p.pitch - (1.0 + 2.2 * depth) * dt, -1.2, 1.4);
+      p.roll += (p.roll >= 0 ? 1 : -1) * 0.25 * depth * dt * (0.5 + Math.random());
+      p.stallShake = depth;
+    } else { p.stalled = false; p.stallShake = 0; }
   }
   if (p.barrel) {
     const step = 2.4 * dt;   // about 2.6 seconds for the whole roll
@@ -4384,6 +4394,8 @@ function render() {
     target = add(p.pos, mul(ax.f, 5));
     camUp = [0, 1, 0];
   }
+  // in a stall the whole view buffets
+  if (p.stallShake) { const k = 0.5 + 2.5 * p.stallShake; target[0] += (Math.random() - 0.5) * k; target[1] += (Math.random() - 0.5) * k; target[2] += (Math.random() - 0.5) * k; }
   // the camera never sinks into a hill
   eye[1] = Math.max(eye[1], terrainAt(eye[0], eye[2]) + 3);
   const cf = norm(sub(target, eye));
