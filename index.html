@@ -253,6 +253,8 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <button id="switchPilot">Switch pilot</button>
     <div id="list"></div>
     <button id="openLivery">Livery maker</button>
+    <h3>Weekly challenge</h3>
+    <div id="weekly"></div>
     <h3>Campaign</h3>
     <div id="campaign"></div>
     <h3>Missions</h3>
@@ -1534,11 +1536,12 @@ async function loadBoard() {
   const box = document.getElementById('board');
   box.textContent = 'Loading...';
   try {
-    const b = await api('/api/board?day=' + today());
+    const b = await api('/api/board?day=' + today() + '&week=' + weekNumber());
     box.innerHTML = '';
     const who = r => r.callsign || r.name;
     box.append(boardList('Longest flight', b.best, r => `${who(r)} - ${r.best.toFixed(1)} km`));
     box.append(boardList('Most back flips', b.flips, r => `${who(r)} - ${r.flips}`));
+    if (b.weekly && b.weekly.length) box.append(boardList('This week: ' + weekFocus().text, b.weekly, r => `${who(r)} - ${r.score} ${weekFocus().unit}`));
     if (b.landing) box.append(boardList('Landing score', b.landing, r => `${who(r)} - ${r.landing} points`));
     if (b.butters) box.append(boardList('Butter landings', b.butters, r => `${who(r)} - ${r.butters}`));
     box.append(boardList('Daily missions today', b.daily, r => `${who(r)} - ${r.daily} of 3`));
@@ -3032,7 +3035,7 @@ function awardLanding(impact) {
   bumpDaily('landings');
   // landings that count toward the weather and autopilot missions
   const ils = !!(p.ap && p.ap.ils), fog = fogAtPlace(p.pos[0], p.pos[2]) > 0.5;
-  if (ils) save.ilsLandings = (save.ilsLandings || 0) + 1;
+  if (ils) { save.ilsLandings = (save.ilsLandings || 0) + 1; weeklyAdd('ils', 1); }
   if (fog) { save.fogLandings = (save.fogLandings || 0) + 1; if (ils) save.fogIlsLandings = (save.fogIlsLandings || 0) + 1; }
   { const fi = nearestFieldIndex(p); if (fi >= 0 && bestEnd(AIRPORTS[fi], fi).xwind >= 10) save.xwindLandings = (save.xwindLandings || 0) + 1; }
   if (impact > 4) addWear((impact - 4) * 4);
@@ -3065,7 +3068,8 @@ function awardLanding(impact) {
   makeLandingReport(impact, nearestFieldIndex(p));
   // landing score for the online board, and a shout on the shared channel for the best and worst landings
   save.landingScore = (save.landingScore || 0) + ({ BUTTER: 10, GREAT: 6, OK: 3, HARD: 0 })[grade];
-  if (grade === 'BUTTER') save.butters = (save.butters || 0) + 1;
+  if (grade === 'BUTTER') { save.butters = (save.butters || 0) + 1; weeklyAdd('butter', 1); }
+  weeklyAdd('points', ({ BUTTER: 10, GREAT: 6, OK: 3, HARD: 0 })[grade]);
   if ((grade === 'BUTTER' || grade === 'HARD') && fieldHere && typeof pendingSay !== 'undefined' && !pendingSay) pendingSay = grade === 'BUTTER' ? `Butter landing at ${fieldHere.code}!` : `Hard landing at ${fieldHere.code}... ouch`;
   const bonus = grade === 'BUTTER' ? 25 : 0;
   const onField = tower && Math.hypot(p.pos[0] - AIRPORTS[tower.i].x, p.pos[2] - AIRPORTS[tower.i].z) < AIRPORTS[tower.i].len / 2 + 300;
@@ -3101,6 +3105,50 @@ const MISSIONS = [
   { id: 'storm20', text: 'Fly 20 seconds inside a thunderstorm and live', hint: 'Dark cells drift across the map. Turbulence is strong inside, so keep the wings level.', pay: 400, done: p => (p.stormSecs || 0) >= 20 },
   { id: 'escort30', text: 'Escort an airliner for 30 seconds', hint: 'Fly within 300 m of an airliner on its route and keep up with it.', pay: 450, done: p => (p.escortSecs || 0) >= 30 }
 ];
+// ---------- weekly challenge: a new goal every Monday, with bronze, silver and gold prizes, and a board of everybody's progress this week
+const WEEK_FOCUS = [
+  { id: 'points', text: 'Earn landing points', unit: 'points', tiers: [30, 80, 150] },
+  { id: 'ils', text: 'Land with the ILS autoland', unit: 'landings', tiers: [3, 8, 15] },
+  { id: 'km', text: 'Fly the most kilometres', unit: 'km', tiers: [20, 60, 120] },
+  { id: 'butter', text: 'Make butter landings', unit: 'landings', tiers: [2, 5, 10] }
+];
+const WEEK_PRIZES = [['BRONZE', 300], ['SILVER', 800], ['GOLD', 2000]];
+const weekNumber = () => Math.floor((dayNum() + 3) / 7);   // weeks start on Monday
+const weekFocus = () => WEEK_FOCUS[weekNumber() % WEEK_FOCUS.length];
+function weekly() {
+  const w = weekNumber();
+  if (!save.weekly || save.weekly.week !== w) save.weekly = { week: w, points: 0, ils: 0, km: 0, butter: 0, score: 0, tier: 0 };
+  return save.weekly;
+}
+// add to this week's totals; the challenge's own measure also becomes the score and pays a prize at each tier
+function weeklyAdd(key, amount) {
+  if (!pilot || !save) return;
+  const wk = weekly();
+  wk[key] = (wk[key] || 0) + amount;
+  const f = weekFocus();
+  wk.score = Math.round((wk[f.id] || 0) * 10) / 10;
+  while (wk.tier < 3 && wk.score >= f.tiers[wk.tier]) {
+    const [name, coins] = WEEK_PRIZES[wk.tier];
+    wk.tier++; save.coins += coins;
+    flashNote(`WEEKLY CHALLENGE: ${name} +${coins} COINS`);
+    playTones([[523, 0, 0.12], [784, 0.12, 0.3]]);
+  }
+  writeSave();
+}
+function renderWeekly() {
+  const box = document.getElementById('weekly');
+  if (!box) return;
+  const wk = weekly(), f = weekFocus();
+  box.innerHTML = '';
+  const t = document.createElement('div');
+  t.className = 'row';
+  t.textContent = `This week: ${f.text}. You have ${wk.score} ${f.unit}.`;
+  box.append(t);
+  const tiers = document.createElement('p');
+  tiers.className = 'hint';
+  tiers.textContent = WEEK_PRIZES.map(([n, c], k) => `${n} ${f.tiers[k]} ${f.unit} = ${c} coins${wk.tier > k ? ' (won)' : ''}`).join('   ');
+  box.append(tiers);
+}
 // ---------- campaign: a story told in eight chapters, each one a flying task that must be done in order
 const CAMPAIGN = [
   { title: 'First light', story: 'The old mail strip has been silent for years. Show the town that planes still fly: stay up and cover 3 km in one flight.', done: p => p.flight.dist >= 3000, pay: 200 },
@@ -3243,6 +3291,7 @@ function toggleHangar() {
 // the missions and best flights shown in the hangar
 function renderExtras() {
   renderCampaign();
+  renderWeekly();
   renderDaily();
   renderBadges();
   renderRepairs();
@@ -3906,6 +3955,7 @@ function logFlight(result) {
   // the logbook: totals for the whole career and the regions you have flown in
   save.totals = save.totals || { flights: 0, km: 0, secs: 0 };
   save.totals.flights++; save.totals.km += f.dist / 1000; save.totals.secs += f.secs;
+  weeklyAdd('km', f.dist / 1000);
   save.regionsFlown = save.regionsFlown || [];
   if (!save.regionsFlown.includes(REGION_ID)) save.regionsFlown.push(REGION_ID);
   entry.date = new Date().toISOString().slice(0, 10); entry.region = REGION_ID;
