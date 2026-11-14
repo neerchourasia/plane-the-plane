@@ -2193,8 +2193,10 @@ function routeKm(from, to) { return haversineKm(airportBy(from), airportBy(to));
 // coins per hour: passenger-kilometres at 80% full, a little more on long routes, never less than 3
 function fleetPerHour(f) {
   const m = MODELS[f.model], kmh = Math.sqrt(m.thrust / m.drag) * 3.6 * 0.85, km = routeKm(f.from, f.to);
-  return Math.max(3, Math.round((CAPACITY[m.name] || 0) * kmh * 0.0018 * 0.8 * (1 + km / 20000)));
+  return Math.max(3, Math.round((CAPACITY[m.name] || 0) * kmh * 0.0018 * 0.8 * (1 + km / 20000) * (f.pilot ? 1.3 : 1)));
 }
+const PILOT_NAMES = ['Capt. Reyes', 'Capt. Okafor', 'Capt. Lindqvist', 'Capt. Tanaka', 'Capt. Haddad', 'Capt. Moreau', 'Capt. Silva', 'Capt. Novak', 'Capt. Kaur', 'Capt. Brandt'];
+const pilotCost = f => 400 + (CAPACITY[MODELS[f.model].name] || 0) * 3;
 const fleetAccrued = f => Math.min(FLEET_CAP_HOURS, (Date.now() - f.since) / 3600000) * fleetPerHour(f);
 function collectFleet() {
   const total = Math.floor((save.fleet || []).reduce((a, f) => a + fleetAccrued(f), 0));
@@ -2223,7 +2225,16 @@ function renderAirline() {
     const btn = document.createElement('button');
     btn.textContent = 'Remove';
     btn.onclick = () => { fleet.splice(idx, 1); writeSave(); renderHangar(); };
-    row.append(label, btn);
+    const hire = document.createElement('button');
+    if (f.pilot) { hire.textContent = f.pilot + ' flies it (+30%)'; hire.disabled = true; }
+    else {
+      hire.textContent = `Hire a pilot, ${pilotCost(f)} coins (+30%)`;
+      hire.onclick = () => {
+        if (save.coins < pilotCost(f)) { flashNote('NOT ENOUGH COINS TO HIRE A PILOT'); return; }
+        save.coins -= pilotCost(f); f.pilot = PILOT_NAMES[Math.floor(Math.random() * PILOT_NAMES.length)]; writeSave(); renderHangar();
+      };
+    }
+    row.append(label, hire, btn);
     box.append(row);
   }
   const total = Math.floor(fleet.reduce((a, f) => a + fleetAccrued(f), 0));
@@ -3898,7 +3909,7 @@ function update(dt) {
   }
 
   trafficUpdate(dt);
-  { const tNow = performance.now() / 1000; let near = false; for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - p.pos[0], q.z - p.pos[2]) < 300 && Math.abs(q.y - p.pos[1]) < 120 && !p.onGround) near = true; } if (near) p.escortSecs = (p.escortSecs || 0) + dt; for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
+  { const tNow = performance.now() / 1000; let near = false; for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - p.pos[0], q.z - p.pos[2]) < 300 && Math.abs(q.y - p.pos[1]) < 120 && !p.onGround) near = true; } if (near) p.escortSecs = (p.escortSecs || 0) + dt; for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
   // a plane that is taxiing, taking off or landing
   for (const a of AIRPORTS) {
     for (const slot of (a.traffic || [])) {
@@ -4069,9 +4080,20 @@ function trafficUpdate(dt) {
 // ---------- sky traffic: airliners flying real routes between the airports, climbing out, cruising and descending to the next runway
 const SKY_N = 10, SKY_SPEED = 115;
 const skyRoutes = [];
+const skyCount = () => SKY_N + ((typeof save !== 'undefined' && save && save.fleet) || []).length;
 function skyFlight(k, t) {
   let r = skyRoutes[k];
-  if (!r) {
+  if (k >= SKY_N) {
+    // the player's own airline: each plane on a route flies it for real, in gold stripes
+    const f = (save.fleet || [])[k - SKY_N];
+    if (!f) return null;
+    if (!r || r.f !== f) {
+      const a = airportBy(f.from), b = airportBy(f.to), m = MODELS[f.model];
+      if (!a || !b || !m) return null;
+      const dist = Math.hypot(b.x - a.x, b.z - a.z);
+      r = skyRoutes[k] = { f, m, a, b, dist, dur: dist / SKY_SPEED, cycle: dist / SKY_SPEED + 40, off: hash2(k, 3105) * 300, cruise: 900 + hash2(k, 3106) * 300, yaw: Math.atan2(b.x - a.x, b.z - a.z), paint: { body: m.spec.body, stripe: [255, 196, 40], wing: m.spec.wing.col, fin: [255, 196, 40] } };
+    }
+  } else if (!r) {
     const pool = PARK_POOLS.big, m = MODELS.find(q => q.name === pool[Math.floor(hash2(k, 3001) * pool.length)]);
     let A = Math.floor(hash2(k, 3002) * AIRPORTS.length), B = Math.floor(hash2(k, 3003) * AIRPORTS.length);
     if (A === B) B = (B + 7) % AIRPORTS.length;
@@ -4535,7 +4557,7 @@ function render() {
     let drawn = 0;
     const tNow = performance.now() / 1000;
     const skyList = [];
-    for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - eye[0], q.z - eye[2]) < 3600) skyList.push(q); }
+    for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - eye[0], q.z - eye[2]) < 3600) skyList.push(q); }
     for (const [i, a] of AIRPORTS.entries()) {
       if (!a.apron || Math.abs(a.x - eye[0]) > 3600 || Math.abs(a.z - eye[2]) > 3600) continue;
       const list = standsOf(a, i).filter(st => !st.away).map(st => ({ m: st.m, paint: st.paint, x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: 0, up: false }));
