@@ -4002,6 +4002,10 @@ function update(dt) {
   }
 
   emergencyStep(dt);
+  // take-off roll: call the rotation speed once
+  if (p.onGround && p.throttle > 0.6 && !p.model.heli) {
+    if (!p.rotateSaid && p.speed >= stallSpeed(p) * 1.15) { p.rotateSaid = true; flashNote('ROTATE'); playTones([[880, 0, 0.12]]); }
+  } else if (!p.onGround && p.pos[1] > 30) p.rotateSaid = false;
   trafficUpdate(dt);
   { const tNow = performance.now() / 1000; let near = false; for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - p.pos[0], q.z - p.pos[2]) < 300 && Math.abs(q.y - p.pos[1]) < 120 && !p.onGround) near = true; } if (near) p.escortSecs = (p.escortSecs || 0) + dt; for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
   // a plane that is taxiing, taking off or landing
@@ -4017,8 +4021,10 @@ function update(dt) {
   }
   // a disabled plane on a closed runway
   for (const a of AIRPORTS) {
-    if (!a.blocked || Math.abs(p.pos[0] - a.x) > 100 || Math.abs(p.pos[2] - a.z) > 100) continue;
-    const m = MODELS.find(q => q.name === '737'), yaw = a.hdgRad + 0.3, dx = p.pos[0] - a.x, dz = p.pos[2] - a.z, sn = Math.sin(yaw), cs = Math.cos(yaw);
+    if (!a.blocked) continue;
+    const bx = a.x + Math.sin(a.hdgRad) * a.len * 0.3, bz = a.z + Math.cos(a.hdgRad) * a.len * 0.3;   // the disabled plane sits a third of the way down
+    if (Math.abs(p.pos[0] - bx) > 100 || Math.abs(p.pos[2] - bz) > 100) continue;
+    const m = MODELS.find(q => q.name === '737'), yaw = a.hdgRad + 0.3, dx = p.pos[0] - bx, dz = p.pos[2] - bz, sn = Math.sin(yaw), cs = Math.cos(yaw);
     if (Math.abs(dx * sn + dz * cs) < m.ext.len + 1 && Math.abs(dx * cs - dz * sn) < m.ext.span + 1 && p.pos[1] < a.apron.y + 14) return crash('Hit a disabled plane on the runway');
   }
   // parked planes
@@ -4094,6 +4100,15 @@ function trafficStop(a) {
   for (const st of (a.stands || [])) st.away = false;
   a.traffic = null; a.rw = null;
 }
+// is the player on this runway (or just above it)? Other planes hold short, stop, or go around for you.
+function playerOnRunway(a) {
+  const p = plane;
+  if (p.crashed) return false;
+  const ux = Math.sin(a.hdgRad), uz = Math.cos(a.hdgRad), dx = p.pos[0] - a.x, dz = p.pos[2] - a.z;
+  const along = dx * ux + dz * uz, across = dx * uz - dz * ux;
+  const agl = p.pos[1] - terrainAt(p.pos[0], p.pos[2]);
+  return Math.abs(across) < 60 && Math.abs(along) < a.len / 2 + 100 && agl < 45;
+}
 function trafficStep(a, i, dt, slot) {
   const stands = standsOf(a, i);
   if (!stands.length) return;
@@ -4120,7 +4135,7 @@ function trafficStep(a, i, dt, slot) {
   } else if (T.phase === 'push') {
     if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, T.dir * (half - 80)), v: 15 }; T.phase = 'taxi'; trafficCall(a, i, `${P.call}, TAXI TO RUNWAY ${rwyNum((T.dir > 0 ? h + Math.PI : h) * RAD2DEG)}`); }
   } else if (T.phase === 'taxi') {
-    if (trafficFollow(P, T.way, dt)) { if (a.rw != null && a.rw !== slot) return; a.rw = slot; T.way = { p: at(0, T.dir * (half - 70)), v: 7 }; T.phase = 'lineup'; }
+    if (trafficFollow(P, T.way, dt)) { if (a.rw != null && a.rw !== slot) return; if (playerOnRunway(a)) { if (!T.heldSaid) { T.heldSaid = true; trafficCall(a, i, `${P.call}, HOLDING SHORT, ${plane.callsign || 'TRAFFIC'} ON THE RUNWAY`); } return; } T.heldSaid = false; a.rw = slot; T.way = { p: at(0, T.dir * (half - 70)), v: 7 }; T.phase = 'lineup'; }
   } else if (T.phase === 'lineup') {
     if (trafficFollow(P, T.way, dt)) { T.phase = 'turn'; T.face = T.dir > 0 ? h + Math.PI : h; }
   } else if (T.phase === 'turn') {
@@ -4128,6 +4143,11 @@ function trafficStep(a, i, dt, slot) {
     P.yaw += clamp(diff, -0.5 * dt, 0.5 * dt);
     if (Math.abs(diff) < 0.03) { P.yaw = T.face; P.v = 0; T.phase = 'roll'; trafficCall(a, i, `${P.call}, RUNWAY ${rwyNum(T.face * RAD2DEG)} CLEARED FOR TAKE-OFF`); T.acc = Math.max(2.5, vr * vr / (2 * 0.6 * (a.len - 140))); }
   } else if (T.phase === 'roll') {
+    // the player is in the way ahead on the runway: stop, and carry on when it is clear
+    const ahead = ((plane.pos[0] - P.x) * Math.sin(P.yaw) + (plane.pos[2] - P.z) * Math.cos(P.yaw));
+    const blocked = !(P.alt > 0) && playerOnRunway(a) && ahead > 0 && ahead < 900;
+    if (blocked) { P.v = Math.max(0, P.v - 7 * dt); if (!T.abortSaid) { T.abortSaid = true; trafficCall(a, i, `${P.call}, ABORTING TAKE-OFF`); } P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt; return; }
+    T.abortSaid = false;
     P.v += T.acc * dt;
     P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt;
     if (P.v >= vr) {
@@ -4155,7 +4175,13 @@ function trafficStep(a, i, dt, slot) {
     P.alt = Math.max(0, togo * 0.0524); P.y = gy + P.alt;
     P.gk = clamp((P.alt - 35) / 25, 0, 1);
     P.pitch = P.alt < 6 ? 0.06 : -0.05;
+    // the player is on the runway as we come in: go around
+    if (togo < 1400 && togo > 150 && playerOnRunway(a)) { T.phase = 'goaround'; trafficCall(a, i, `${P.call}, GOING AROUND`); return; }
     if (togo <= 0) { P.alt = 0; P.y = gy; P.pitch = 0; T.phase = 'rollout'; }
+  } else if (T.phase === 'goaround') {
+    P.pitch = Math.min(0.16, P.pitch + 0.3 * dt); P.alt += P.v * 0.16 * dt; P.y = gy + P.alt; P.gk = clamp((P.alt - 6) / 14, 0, 1);
+    P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt;
+    if (P.alt > 220 || Math.hypot(P.x - a.x, P.z - a.z) > 3000) { T.plane = null; T.phase = 'away'; T.t = 20; if (a.rw === slot) a.rw = null; }
   } else if (T.phase === 'rollout') {
     P.v = Math.max(13, P.v - 3 * dt);
     P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt;
@@ -4682,7 +4708,7 @@ function render() {
       const list = standsOf(a, i).filter(st => !st.away).map(st => ({ m: st.m, paint: st.paint, x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: 0, up: false }));
       for (const slot of (a.traffic || [])) if (slot && slot.plane) list.push(slot.plane);
       if (!lowGfx() && Math.hypot(a.x - eye[0], a.z - eye[2]) < 1100) airportProps(a, i);
-      if (a.blocked) { const m = MODELS.find(q => q.name === '737'); list.push({ m, paint: { body: m.spec.body, stripe: [220, 40, 40], wing: m.spec.wing.col, fin: [220, 40, 40] }, x: a.x, y: a.apron.y + m.gearLen, z: a.z, yaw: a.hdgRad + 0.3, pitch: 0, up: false }); }
+      if (a.blocked) { const m = MODELS.find(q => q.name === '737'); list.push({ m, paint: { body: m.spec.body, stripe: [220, 40, 40], wing: m.spec.wing.col, fin: [220, 40, 40] }, x: a.x + Math.sin(a.hdgRad) * a.len * 0.3, y: a.apron.y + m.gearLen, z: a.z + Math.cos(a.hdgRad) * a.len * 0.3, yaw: a.hdgRad + 0.3, pitch: 0, up: false }); }
       for (const st of list) {
         const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
         if (d > (lowGfx() ? 1200 : 2200) || d < 3 || drawn >= (lowGfx() ? 4 : 10)) continue;
@@ -5075,6 +5101,14 @@ function drawHUD(now) {
   ctx.fillText('V/S ' + (vsFpm >= 0 ? '+' : '') + vsFpm.toFixed(0), W - 28 + 78, H / 2 + 118);
   ctx.textAlign = 'left';
   ctx.fillText('KT', 28, H / 2 + 118);
+  // reference speeds for this plane and flap setting: stall, rotate (take-off) and approach
+  if (!p.model.heli) {
+    const vs = stallSpeed(p) * 1.944;
+    ctx.fillStyle = p.speed < stallSpeed(p) * 1.15 && !p.onGround ? '#ff6b6b' : '#8fb3c9';
+    ctx.fillText('VS ' + Math.round(vs), 28, H / 2 + 134);
+    ctx.fillStyle = '#8fb3c9';
+    ctx.fillText('VR ' + Math.round(vs * 1.15) + '  VREF ' + Math.round(vs * 1.3), 28, H / 2 + 150);
+  }
 
   // model, coins and last landing
   panel(16, 16, 230, 104);
