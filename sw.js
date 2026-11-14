@@ -1,7 +1,7 @@
 // Offline support: after the first visit, the game and admin page load without wifi.
 // Bump CACHE when any shipped file changes so browsers pick up the new version.
-const CACHE = 'plane-the-plane-v3';
-const FILES = ['./', './index.html', './admin.html', './favicon.svg'];
+const CACHE = 'plane-the-plane-v4';
+const FILES = ['./', './index.html', './admin.html', './favicon.svg', './earth.jpg'];
 
 self.addEventListener('install', event => {
   event.waitUntil(

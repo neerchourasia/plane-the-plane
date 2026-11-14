@@ -131,6 +131,7 @@
     <h2>World map</h2>
     <canvas id="worldCanvas"></canvas>
     <p class="hint">Click an airport to fly there. Press U or Esc to close.</p>
+    <p class="hint" style="font-size:11px">Satellite image: NASA Visible Earth, Blue Marble (public domain).</p>
     <button id="worldClose">Close</button>
   </div>
 </div>
@@ -2841,6 +2842,11 @@ const OCEANS = [
   { name: 'Pacific', lon: -160, lat: 5 }, { name: 'Atlantic', lon: -35, lat: 20 },
   { name: 'Indian', lon: 75, lat: -20 }, { name: 'Arctic', lon: 0, lat: 84 }, { name: 'Southern', lon: 20, lat: -62 }
 ];
+// the satellite picture of the Earth (NASA Visible Earth, Blue Marble: public domain); the hand-drawn map is the fallback
+const EARTH = new Image();
+let earthReady = false;
+EARTH.onload = () => { earthReady = true; if (worldOpen) drawWorld(); };
+EARTH.src = 'earth.jpg';
 let worldOpen = false;
 function toggleWorld() {
   worldOpen = !worldOpen;
@@ -2858,13 +2864,14 @@ function drawWorld() {
   const sea = g.createLinearGradient(0, 0, 0, h);
   sea.addColorStop(0, '#0b2f55'); sea.addColorStop(0.5, '#135189'); sea.addColorStop(1, '#0b2f55');
   g.fillStyle = sea; g.fillRect(0, 0, w, h);
+  if (earthReady) g.drawImage(EARTH, 0, 0, w, h);
   // latitude and longitude lines every 30 degrees
   g.strokeStyle = 'rgba(180,220,255,0.14)'; g.lineWidth = 1;
   for (let lon = -180; lon <= 180; lon += 30) { const [x] = worldProject(lon, 0, w, h); g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
   for (let lat = -60; lat <= 60; lat += 30) { const [, y] = worldProject(0, lat, w, h); g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
-  // land
+  // land (hand-drawn outlines, only when the satellite picture is not available)
   g.fillStyle = '#4f8a4a'; g.strokeStyle = '#2f5f2c';
-  for (const poly of CONTINENTS) {
+  for (const poly of earthReady ? [] : CONTINENTS) {
     g.beginPath();
     poly.forEach(([lon, lat], i) => { const [x, y] = worldProject(lon, lat, w, h); i ? g.lineTo(x, y) : g.moveTo(x, y); });
     g.closePath(); g.fill(); g.stroke();
