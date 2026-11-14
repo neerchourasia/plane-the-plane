@@ -1911,16 +1911,6 @@ function drawRace() {
   ctx.fillText(`RACE ${def.name.toUpperCase()}   GATE ${race.gate + 1}/${def.gates}   ${fmtTime(Math.max(0, race.t))}${best ? '   BEST ' + fmtTime(best) : ''}`, W / 2, 170);
   if (race.count > 0) { ctx.font = 'bold 64px ui-monospace, Menlo, monospace'; ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillText(String(Math.ceil(race.count)), W / 2, H / 2 - 80); }
   else if (race.t < 1) { ctx.font = 'bold 54px ui-monospace, Menlo, monospace'; ctx.fillStyle = 'rgba(90,255,150,0.95)'; ctx.fillText('GO', W / 2, H / 2 - 80); }
-  // the ghost of your best run
-  const gh = (save.raceGhosts || {})[def.id];
-  if (gh && race.count <= 0) {
-    const q = gh[Math.floor(race.t / 0.5)];
-    const gs = q && wildProject([q[0], q[1], q[2]]);
-    if (gs) {
-      ctx.fillStyle = 'rgba(120,220,255,0.55)'; ctx.beginPath(); ctx.arc(gs[0], gs[1], clamp(F * 4 / gs[2], 3, 10), 0, 6.3); ctx.fill();
-      ctx.fillStyle = 'rgba(220,245,255,0.95)'; ctx.font = '12px ui-monospace, Menlo, monospace'; ctx.fillText('BEST RUN', gs[0], gs[1] - 14);
-    }
-  }
   ctx.textAlign = 'start';
 }
 
@@ -5791,7 +5781,6 @@ function frame(now) {
   drawCockpitPanel();
   drawRings();
   drawWildlife();
-  drawGhost();
   drawRace();
   drawPilots();
   drawGuide();
