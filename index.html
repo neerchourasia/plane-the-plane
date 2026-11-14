@@ -927,7 +927,7 @@ if (REGION) {
   for (let i = 0; i < TER_N * TER_N; i++) TER_GRID[i] = (bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8)) / REGION.s16;
 }
 // the height of the home runway: the average along it, so the flat strip needs the least cutting and filling
-const HOME_Y = REGION ? Math.round([-200, 0, 200, 400, 600, 800, 1000].reduce((a, z) => a + naturalAt(0, z), 0) / 7) : 0;
+let HOME_Y = REGION ? Math.round([-200, 0, 200, 400, 600, 800, 1000].reduce((a, z) => a + naturalAt(0, z), 0) / 7) : 0;
 START.pos[1] = HOME_Y;
 // colours and limits that suit each land: where bare rock and snow begin
 const LAND = REGION
@@ -984,8 +984,36 @@ const AIRPORTS = [];
   const spread = (x, z, ux, uz, hl) => { const pts = []; for (let t = -hl; t <= hl; t += 150) pts.push([x + ux * t, z + uz * t]); return pts; };
   const homeGap = ([px, pz]) => Math.hypot(Math.max(Math.abs(px) - RUNWAY.x, 0), Math.max(RUNWAY.z0 - pz, pz - RUNWAY.z1, 0));
   AIRPORT_DATA.forEach((a, i) => {
-    const hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
+    let hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
     let len = Math.min(a.len, i < 12 ? 2600 : 2000), spot = null;
+    if (REGION) {
+      // scan the whole map for the flattest, driest strip; the runway may turn up to 25 degrees from its real heading
+      const cap = len, hl2 = cap / 2, base0 = hdgRad;
+      let best = null;
+      for (const turn of [0, 12, -12, 25, -25]) {
+        const h2 = base0 + turn * Math.PI / 180, ux2 = Math.sin(h2), uz2 = Math.cos(h2);
+        for (let gx = -5250; gx <= 5250; gx += 250) {
+          for (let gz = -5250; gz <= 5250; gz += 250) {
+            let lo = 1e9, hi = -1e9;
+            for (let t = -hl2; t <= hl2; t += 200) { const h = naturalAt(gx + ux2 * t, gz + uz2 * t); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+            if (lo < WATER + 1.5) continue;
+            const score = hi - lo + Math.abs(turn) * 1.2;
+            if (best && score >= best.score) continue;
+            const e1 = [gx - ux2 * hl2, gz - uz2 * hl2], e2 = [gx + ux2 * hl2, gz + uz2 * hl2];
+            if ([e1, e2].some(q => Math.abs(q[0]) > 5500 || Math.abs(q[1]) > 5500) || [e1, [gx, gz], e2].some(q => homeGap(q) < 600)) continue;
+            const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+            const segPt = (p1, p2, c) => { const ax = p2[0] - p1[0], az = p2[1] - p1[1], t = clamp(((c[0] - p1[0]) * ax + (c[1] - p1[1]) * az) / (ax * ax + az * az || 1), 0, 1); return Math.hypot(c[0] - p1[0] - ax * t, c[1] - p1[1] - az * t); };
+            let ok = true;
+            for (const o of AIRPORTS) {
+              const ox = Math.sin(o.hdgRad) * o.len / 2, oz = Math.cos(o.hdgRad) * o.len / 2, o1 = [o.x - ox, o.z - oz], o2 = [o.x + ox, o.z + oz];
+              if ((side(e1, e2, o1) * side(e1, e2, o2) < 0 && side(o1, o2, e1) * side(o1, o2, e2) < 0) || Math.min(segPt(e1, e2, o1), segPt(e1, e2, o2), segPt(o1, o2, e1), segPt(o1, o2, e2)) < 500) { ok = false; break; }
+            }
+            if (ok) best = { x: gx, z: gz, hdg: h2, score };
+          }
+        }
+      }
+      if (best) { spot = { x: best.x, z: best.z }; hdgRad = best.hdg; }
+    }
     // try the usual gap first; if the world is too full, allow a smaller gap, then a shorter runway
     // on a real region the runway must lie on fairly flat, dry ground: the allowed height difference grows as the search widens
     const rough = (x, z, hl) => {
@@ -993,7 +1021,7 @@ const AIRPORTS = [];
       for (let t = -hl; t <= hl; t += 200) { const h = naturalAt(x + ux * t, z + uz * t); lo = Math.min(lo, h); hi = Math.max(hi, h); }
       return lo < WATER + 1.5 ? 1e9 : hi - lo;
     };
-    for (const [gap, shrink, flatLimit] of [[450, 1, 40], [300, 1, 70], [180, 1, 120], [180, 0.75, 180], [120, 0.6, 320]]) {
+    if (!spot) for (const [gap, shrink, flatLimit] of [[450, 1, 40], [300, 1, 70], [180, 1, 120], [180, 0.75, 180], [120, 0.6, 320]]) {
       len = Math.min(a.len, i < 12 ? 2600 : 2000) * shrink;
       const hl = len / 2;
       for (let t = 0; t < 1500 && !spot; t++) {
@@ -1013,6 +1041,31 @@ const AIRPORTS = [];
     AIRPORTS.push({ ...a, len, realLen: a.len, lat: geo[0], lon: geo[1], x: spot.x, z: spot.z, hdgRad });
   });
 })();
+// On a real region the ground under every runway is levelled to the average height along it, with a wide smooth
+// ramp around it, so each airport sits on a flat platform instead of a cliff.
+function gradeRunway(cx, cz, hdg, hl, hw, blend) {
+  const ux = Math.sin(hdg), uz = Math.cos(hdg);
+  let sum = 0, cnt = 0;
+  for (let t = -hl; t <= hl; t += 100) { sum += naturalAt(cx + ux * t, cz + uz * t); cnt++; }
+  const elev = sum / cnt, reach = hl + hw + blend;
+  const i0 = Math.max(0, Math.floor((cx - reach + TER_HALF) / TER_STEP)), i1 = Math.min(TER_N - 1, Math.ceil((cx + reach + TER_HALF) / TER_STEP));
+  const j0 = Math.max(0, Math.floor((cz - reach + TER_HALF) / TER_STEP)), j1 = Math.min(TER_N - 1, Math.ceil((cz + reach + TER_HALF) / TER_STEP));
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      const dx = i * TER_STEP - TER_HALF - cx, dz = j * TER_STEP - TER_HALF - cz;
+      const a = dx * ux + dz * uz, b = dx * uz - dz * ux;
+      const d = Math.hypot(Math.max(Math.abs(a) - hl, 0), Math.max(Math.abs(b) - hw, 0));
+      const t = clamp(1 - d / blend, 0, 1), k = t * t * (3 - 2 * t);
+      TER_GRID[i * TER_N + j] += (elev - TER_GRID[i * TER_N + j]) * k;
+    }
+  }
+  return elev;
+}
+if (REGION) {
+  HOME_Y = Math.round(gradeRunway(0, 400, 0, 600, RUNWAY.x + 10, 450));
+  START.pos[1] = HOME_Y;
+  for (const a of AIRPORTS) gradeRunway(a.x, a.z, a.hdgRad, a.len / 2, 30, 420);
+}
 function refreshPads() {
   pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: HOME_Y }];
   for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, 20], elev: naturalAt(a.x, a.z) });
@@ -2323,6 +2376,16 @@ for (let t = 0; t < 9; t++) {
     buildings.push({ x, z, w, d, h, y, top: y + h, col: [s, s * 0.95, s * 0.9] });
   }
 }
+// no building stands on a runway or its apron: remove those after the towns are made, so the rest of the layout is unchanged
+// within 220 m of a runway (its whole length) or of the home runway
+const onAirfield = (x, z, margin = 220) => {
+  if (Math.abs(x) < RUNWAY.x + margin && z > RUNWAY.z0 - margin && z < RUNWAY.z1 + margin) return true;
+  return AIRPORTS.some(a => {
+    const ux = Math.sin(a.hdgRad), uz = Math.cos(a.hdgRad), dx = x - a.x, dz = z - a.z, t = clamp(dx * ux + dz * uz, -a.len / 2, a.len / 2);
+    return Math.hypot(dx - ux * t, dz - uz * t) < margin;
+  });
+};
+for (let k = buildings.length - 1; k >= 0; k--) if (onAirfield(buildings[k].x, buildings[k].z)) buildings.splice(k, 1);
 const roads = towns.slice(1).map((t, i) => [towns[i], t]);
 
 const clouds = [];
@@ -3631,6 +3694,21 @@ function render() {
       terrainItems.push({ d: td, draw: () => { drawPoly(tr, trunk); for (let k = 0; k < 5; k++) drawPoly([base[k], base[(k + 1) % 5], apex], col); } });
     }
   };
+  // one facet of the ground: shaded by its slope, with water, beach, rock and snow decided by its height and steepness
+  const facet = (cr, baseCell, dist, jit) => {
+    let n = norm(cross(sub(cr[3], cr[0]), sub(cr[1], cr[0])));
+    if (n[1] < 0) n = mul(n, -1);
+    const h = (cr[0][1] + cr[1][1] + cr[2][1] + cr[3][1]) / 4;
+    let base = jit === 1 ? baseCell : mul(baseCell, jit);
+    if (cr.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [40, 94, 138];                    // only flat lake surfaces are water
+    else if (cr.some(c => c[1] < WATER + 2.4)) base = [212, 198, 150];                           // a sandy beach along the water
+    base = mix(base, LAND.rock, clamp((0.84 - n[1]) / 0.1, 0, 1) * 0.75);                       // steep slopes show bare rock
+    base = mix(base, LAND.rock, clamp((h - LAND.rockH) / 250, 0, 1) * 0.8);
+    base = mix(base, SNOW, clamp((h - LAND.snowH) / 150, 0, 1));
+    const col = rgb(mix(mul(base, shadeFor(n) * L), mul(mix(HZ, [168, 196, 232], 0.32), L), fogAt(dist)));   // distant ground fades to a bluer haze
+    const cam = cr.map(toCam);
+    terrainItems.push({ d: dist, draw: () => drawPoly(cam, col) });
+  };
   const bx = Math.floor(p.pos[0] / CELL), bz = Math.floor(p.pos[2] / CELL);
   // terrain heights at every cell corner, sampled once per frame
   const M = 2 * GRID_N + 1, cornerH = new Float32Array(M * M);
@@ -3663,16 +3741,20 @@ function render() {
       }
       if (LAND.tint && roll >= 0.12) base = mix(base, LAND.tint, LAND.tintK);   // the land's own colour: dry red soil, dark conifers, lush green
       base = mul(base, 0.94 + 0.12 * hash2(gx * 13 + 5, gz * 7 - 9));   // a little variation from cell to cell
-      // only flat lake surfaces are water; ground that the runway pulls down is not
-      const shore = corners.some(c => c[1] < WATER + 2.4);
-      if (corners.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [40, 94, 138];
-      else if (shore) base = [212, 198, 150];                                           // a sandy beach along the water
-      base = mix(base, LAND.rock, clamp((0.84 - n[1]) / 0.1, 0, 1) * 0.75);              // steep slopes show bare rock
-      base = mix(base, LAND.rock, clamp((h - LAND.rockH) / 250, 0, 1) * 0.8);
-      base = mix(base, SNOW, clamp((h - LAND.snowH) / 150, 0, 1));
-      const col = rgb(mix(mul(base, shadeFor(n) * L), mul(mix(HZ, [168, 196, 232], 0.32), L), fogAt(dist)));   // distant ground fades to a bluer haze
-      const cam = corners.map(toCam);
-      terrainItems.push({ d: dist, draw: () => drawPoly(cam, col) });
+      // close to the plane the cell is split into 2 by 2 or 4 by 4 smaller facets, so ridges and valleys keep their shape
+      const S = dist < 450 ? 4 : dist < 1100 ? 2 : 1;
+      if (S === 1) facet(corners, base, dist, 1);
+      else {
+        const q = CELL / S, sub = [];
+        for (let a = 0; a <= S; a++) for (let b = 0; b <= S; b++) sub.push(terrainAt(x0 + a * q, z0 + b * q));
+        for (let a = 0; a < S; a++) {
+          for (let b = 0; b < S; b++) {
+            const xa = x0 + a * q, za = z0 + b * q, i0 = a * (S + 1) + b;
+            const cr = [[xa, sub[i0], za], [xa + q, sub[i0 + S + 1], za], [xa + q, sub[i0 + S + 2], za + q], [xa, sub[i0 + 1], za + q]];
+            facet(cr, base, Math.hypot(xa + q / 2 - eye[0], za + q / 2 - eye[2]), 0.95 + 0.1 * hash2(gx * 17 + a * 5 + 3, gz * 19 + b * 7 - 1));
+          }
+        }
+      }
     }
   }
 
