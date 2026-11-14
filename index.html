@@ -1321,7 +1321,7 @@ if (REGION) {
 }
 function refreshPads() {
   pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: HOME_Y }];
-  for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, 20], elev: naturalAt(a.x, a.z) });
+  for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, REGION ? 20 : 175], elev: naturalAt(a.x, a.z) });   // Classic: a wide level platform for the apron and terminal
   for (const pad of pads) { pad.sn = Math.sin(pad.hdg); pad.cs = Math.cos(pad.hdg); pad.reach2 = (pad.half[0] + PAD_BLEND) ** 2 + (pad.half[1] + PAD_BLEND) ** 2; }
 }
 // Height of the ground at x, z, with the pads applied.
@@ -2634,6 +2634,56 @@ const onAirfield = (x, z, margin = 220) => {
   return false;
 };
 for (let k = buildings.length - 1; k >= 0; k--) if (onAirfield(buildings[k].x, buildings[k].z)) buildings.splice(k, 1);
+// every airport gets a terminal with a control tower, hangars, and a paved apron with a taxiway to the runway. They stand on one side of
+// the runway (the flatter one), turned to face it, and are left out where the ground is too uneven, wet, or another runway is in the way.
+let airportBuildingCount = 0;
+(() => {
+  const segDist = (px, pz, o) => {
+    const ux = Math.sin(o.hdgRad), uz = Math.cos(o.hdgRad), dx = px - o.x, dz = pz - o.z, t = clamp(dx * ux + dz * uz, -o.len / 2, o.len / 2);
+    return Math.hypot(dx - ux * t, dz - uz * t);
+  };
+  for (const a of AIRPORTS) {
+    const h = a.hdgRad, ux = Math.sin(h), uz = Math.cos(h), sx = Math.cos(h), sz = -Math.sin(h);
+    const tw = Math.round(clamp(a.len * 0.2, 56, 190)), OFF = 150, extent = 60;
+    for (const side of [1, -1]) {
+      const spot = (off, along) => [a.x + sx * side * off + ux * along, a.z + sz * side * off + uz * along];
+      // [kind, offset from the runway, along the runway, length, depth, height, colour]
+      const want = [
+        ['terminal', OFF, 0, tw, 34, 13, 2, [0.74, 0.78, 0.84], true],
+        ['tower', OFF, tw / 2 + 30, 11, 11, 28, 1, [0.84, 0.84, 0.82], true],
+        ['cab', OFF, tw / 2 + 30, 18, 18, 7, 2, [0.4, 0.5, 0.6], true, 28],
+        ['hangar', OFF, -(tw / 2 + 48), 44, 38, 14, 3, [0.6, 0.64, 0.68], false],
+        ['hangar', OFF, -(tw / 2 + 48 + 52), 44, 38, 14, 3, [0.66, 0.66, 0.64], false],
+        ['apron', 82, 0, tw + 60, 74, 0, 4, [0.5, 0.5, 0.52], false],
+        ['taxiway', 32, 0, 22, 24, 0, 4, [0.5, 0.5, 0.52], false]
+      ];
+      const placed = [];
+      let ok = true;
+      for (const [name, off, along, lw, ld, hh, kind, col, need, base] of want) {
+        const [cx, cz] = spot(off, along);
+        let lo = 1e9, hi = -1e9;
+        for (const [fa, fb] of [[0, 0], [-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+          const y = terrainAt(cx + ux * fa * lw / 2 + sx * fb * ld / 2, cz + uz * fa * lw / 2 + sz * fb * ld / 2);
+          lo = Math.min(lo, y); hi = Math.max(hi, y);
+        }
+        const bad = lo < WATER + 1.5 || hi - lo > (hh === 0 ? 3 : 5) || AIRPORTS.some(o => o !== a && segDist(cx, cz, o) < 70 + Math.max(lw, ld) / 2);
+        if (bad) { if (need) { ok = false; break; } continue; }
+        const aw = Math.abs(ux * lw) + Math.abs(sx * ld), ad = Math.abs(uz * lw) + Math.abs(sz * ld);
+        placed.push({ x: cx, z: cz, w: aw, d: ad, h: hh, y: hi, top: hi + (base || 0) + hh, base: base || 0, col, rot: h, lw, ld, kind, slab: kind === 4, name });
+      }
+      if (!ok || placed.length < 3) continue;
+      // clear the scattered buildings from under it
+      for (let k = buildings.length - 1; k >= 0; k--) {
+        const b = buildings[k];
+        if (placed.some(q => Math.abs(b.x - q.x) < (b.w + q.w) / 2 + 12 && Math.abs(b.z - q.z) < (b.d + q.d) / 2 + 12)) buildings.splice(k, 1);
+      }
+      for (const q of placed) buildings.push(q);
+      a.complex = { side, terminal: tw };
+      airportBuildingCount += placed.length;
+      break;
+    }
+  }
+})();
 const roads = towns.slice(1).map((t, i) => [towns[i], t]);
 
 const clouds = [];
@@ -3729,6 +3779,12 @@ function update(dt) {
 
   // buildings
   for (const b of buildings) {
+    if (b.slab) continue;
+    if (b.rot !== undefined) {
+      const dx = p.pos[0] - b.x, dz = p.pos[2] - b.z, along = dx * Math.sin(b.rot) + dz * Math.cos(b.rot), across = dx * Math.cos(b.rot) - dz * Math.sin(b.rot);
+      if (Math.abs(along) < b.lw / 2 + 1 && Math.abs(across) < b.ld / 2 + 1 && p.pos[1] < b.top && p.pos[1] > b.y - 1) return crash('Hit a building');
+      continue;
+    }
     if (Math.abs(p.pos[0] - b.x) < b.w / 2 + 1 && Math.abs(p.pos[2] - b.z) < b.d / 2 + 1 && p.pos[1] < b.top) {
       return crash('Hit a building');
     }
@@ -5172,7 +5228,10 @@ void main() {
   float near = 1.0 - smoothstep(60.0, 900.0, dist);       // fine detail fades with distance
   if (N.y > 0.25) {
     // roofs
-    if (vK < 0.5 && N.y < 0.95) {
+    if (vK > 3.5) {
+      // paving: asphalt with faint stains
+      col = vec3(0.33, 0.33, 0.36) * (0.88 + 0.24 * vn(vUV * 0.35)) * (0.94 + 0.06 * vn(vUV * 2.0));
+    } else if (vK < 0.5 && N.y < 0.95) {
       // pitched roof: tiles in rows
       float row = 0.82 + 0.18 * sin(vUV.y * 5.0) * near;
       col = vC * row * (0.85 + 0.3 * vn(vUV * 1.4));
@@ -5184,7 +5243,7 @@ void main() {
       vec2 cell = floor(vUV / 7.0);
       float bx = h21(cell + floor(vDim.x));
       if (bx > 0.86 && e > 2.0) { vec2 f = fract(vUV / 7.0); if (f.x > 0.2 && f.x < 0.7 && f.y > 0.25 && f.y < 0.65) col = vec3(0.55, 0.57, 0.6); }
-      if (vK > 1.5) col = mix(col, vec3(0.5, 0.58, 0.66), 0.5);
+      if (vK > 1.5 && vK < 2.5) col = mix(col, vec3(0.5, 0.58, 0.66), 0.5);
     }
   } else {
     float u = vUV.x, v = vUV.y;
@@ -5194,7 +5253,7 @@ void main() {
     vec2 f = vec2(fract(u / winW), fract(v / floorH));
     vec2 lo = vK < 0.5 ? vec2(0.3, 0.28) : vK < 1.5 ? vec2(0.24, 0.3) : vec2(0.03, 0.14);
     vec2 hi = vK < 0.5 ? vec2(0.7, 0.72) : vK < 1.5 ? vec2(0.76, 0.7) : vec2(0.97, 0.86);
-    bool glass = f.x > lo.x && f.x < hi.x && f.y > lo.y && f.y < hi.y && v > 0.4;
+    bool glass = f.x > lo.x && f.x < hi.x && f.y > lo.y && f.y < hi.y && v > 0.4 && vK < 2.5;
     float r = h21(vec2(cu, cv) + vec2(floor(vW.x * 0.013), floor(vW.z * 0.013)));
     // wall: concrete or plaster with floor lines, streaks and a dark base
     vec3 wall = vC * (0.86 + 0.28 * vn(vec2(u, v) * 0.6)) * (1.0 - 0.12 * vn(vec2(u * 0.4, v * 0.04)));
@@ -5212,7 +5271,11 @@ void main() {
     } else {
       col = wall;
       if (f.y > lo.y - 0.07 && f.y < lo.y && f.x > lo.x - 0.05 && f.x < hi.x + 0.05) col = wall * 1.1;   // a sill under each window
-      if (vK > 1.5) col = vC * (0.8 + 0.3 * fract(u / 1.2)) ;                                           // mullions on a glass tower
+      if (vK > 1.5 && vK < 2.5) col = vC * (0.8 + 0.3 * fract(u / 1.2)) ;                                // mullions on a glass tower
+      if (vK > 2.5) {                                                                                      // hangar: corrugated metal and a big door
+        col = vC * (0.86 + 0.14 * sin(u * 6.0)) * (0.9 + 0.2 * vn(vec2(u, v) * 0.3));
+        if (v < 8.0 && u > vDim.x * 0.22 && u < vDim.x * 0.78) col = vec3(0.3, 0.33, 0.37) * (0.85 + 0.15 * sin(u * 3.0));
+      }
     }
   }
   float diff = max(dot(N, uSun), 0.0);
@@ -5566,7 +5629,25 @@ function buildBuildingMesh() {
     quad([x1, yb, z0], [x1, yb, z1], [x1, yTop, z1], [x1, yTop, z0], [1, 0, 0], [[0, vb], [d, vb], [d, vt], [0, vt]], col, kind, d, w);
     quad([x0, yTop, z0], [x1, yTop, z0], [x1, yTop, z1], [x0, yTop, z1], [0, 1, 0], [[0, 0], [w, 0], [w, d], [0, d]], col, kind, w, d);
   };
+  // a box turned to face along the runway: four walls and a flat roof (or, for paving, only the flat top)
+  const rbox = (b, yg, yTop, col, kind, top) => {
+    const u = [Math.sin(b.rot), Math.cos(b.rot)], sd = [Math.cos(b.rot), -Math.sin(b.rot)], hw = b.lw / 2, hd = b.ld / 2;
+    const P = (a, c, y) => [b.x + u[0] * a + sd[0] * c, y, b.z + u[1] * a + sd[1] * c];
+    const yb = yg - 8, vt = yTop - yg, vb = -8;
+    if (!top) {
+      quad(P(-hw, -hd, yb), P(hw, -hd, yb), P(hw, -hd, yTop), P(-hw, -hd, yTop), [-sd[0], 0, -sd[1]], [[0, vb], [b.lw, vb], [b.lw, vt], [0, vt]], col, kind, b.lw, b.ld);
+      quad(P(hw, hd, yb), P(-hw, hd, yb), P(-hw, hd, yTop), P(hw, hd, yTop), [sd[0], 0, sd[1]], [[0, vb], [b.lw, vb], [b.lw, vt], [0, vt]], col, kind, b.lw, b.ld);
+      quad(P(-hw, hd, yb), P(-hw, -hd, yb), P(-hw, -hd, yTop), P(-hw, hd, yTop), [-u[0], 0, -u[1]], [[0, vb], [b.ld, vb], [b.ld, vt], [0, vt]], col, kind, b.ld, b.lw);
+      quad(P(hw, -hd, yb), P(hw, hd, yb), P(hw, hd, yTop), P(hw, -hd, yTop), [u[0], 0, u[1]], [[0, vb], [b.ld, vb], [b.ld, vt], [0, vt]], col, kind, b.ld, b.lw);
+    }
+    quad(P(-hw, -hd, yTop), P(hw, -hd, yTop), P(hw, hd, yTop), P(-hw, hd, yTop), [0, 1, 0], [[0, 0], [b.lw, 0], [b.lw, b.ld], [0, b.ld]], col, kind, b.lw, b.ld);
+  };
   buildings.forEach((b, id) => {
+    if (b.rot !== undefined) {
+      if (b.slab) rbox(b, b.y, b.y + 0.3, b.col, 4, true);
+      else rbox(b, b.y + b.base, b.top, b.col, b.kind, false);
+      return;
+    }
     const r1 = hash2(id, 901), r2 = hash2(id, 902), r3 = hash2(id, 903);
     const kind = b.h > 150 ? 2 : (b.h < 26 && Math.max(b.w, b.d) < 48) ? 0 : 1;
     if (kind === 0) {
