@@ -1655,7 +1655,7 @@ function updateTower() {
     tower = { i: best, code: a.code, cleared: false };
     radio(`${a.code} TOWER: ${windTxt}. USE RUNWAY ${end.num}`);
   }
-  const T = a.traffic, busy = T && ['lineup', 'turn', 'roll', 'rollout', 'approach'].includes(T.phase);
+  const T = (a.traffic || []).find(q => q.plane && ['lineup', 'turn', 'roll', 'rollout', 'approach'].includes(q.phase)), busy = !!T;
   // on the ground at the airport with the throttle up: take-off clearance, or hold while another plane is on the runway
   if (p.onGround && p.speed < 6 && p.throttle > 0.5 && Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 200) {
     if (busy && T.plane) { if (!tower.holdSaid) { tower.holdSaid = true; radio(`${a.code} TOWER: HOLD POSITION, ${T.plane.call} ON THE RUNWAY`); } }
@@ -3825,14 +3825,17 @@ function update(dt) {
   }
 
   trafficUpdate(dt);
+  { const tNow = performance.now() / 1000; for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
   // a plane that is taxiing, taking off or landing
   for (const a of AIRPORTS) {
-    const Q = a.traffic && a.traffic.plane;
-    if (!Q) continue;
-    const dx = p.pos[0] - Q.x, dz = p.pos[2] - Q.z;
-    if (Math.abs(dx) > 120 || Math.abs(dz) > 120) continue;
-    const sn = Math.sin(Q.yaw), cs = Math.cos(Q.yaw), along = dx * sn + dz * cs, across = dx * cs - dz * sn;
-    if (Math.abs(along) < Q.m.ext.len + 1 && Math.abs(across) < Q.m.ext.span + 1 && p.pos[1] < Q.y + Math.max(4, Q.m.ext.len * 0.5) && p.pos[1] > Q.y - Q.m.gearLen - 1) return crash('Hit another plane');
+    for (const slot of (a.traffic || [])) {
+      const Q = slot.plane;
+      if (!Q) continue;
+      const dx = p.pos[0] - Q.x, dz = p.pos[2] - Q.z;
+      if (Math.abs(dx) > 120 || Math.abs(dz) > 120) continue;
+      const sn = Math.sin(Q.yaw), cs = Math.cos(Q.yaw), along = dx * sn + dz * cs, across = dx * cs - dz * sn;
+      if (Math.abs(along) < Q.m.ext.len + 1 && Math.abs(across) < Q.m.ext.span + 1 && p.pos[1] < Q.y + Math.max(4, Q.m.ext.len * 0.5) && p.pos[1] > Q.y - Q.m.gearLen - 1) return crash('Hit another plane');
+    }
   }
   // parked planes
   for (const [i, a] of AIRPORTS.entries()) {
@@ -3905,16 +3908,17 @@ function trafficFollow(P, w, dt) {
 function trafficStop(a) {
   if (!a.traffic) return;
   for (const st of (a.stands || [])) st.away = false;
-  a.traffic = null;
+  a.traffic = null; a.rw = null;
 }
-function trafficStep(a, i, dt) {
+function trafficStep(a, i, dt, slot) {
   const stands = standsOf(a, i);
   if (!stands.length) return;
   const h = a.hdgRad, side = a.complex.side, ux = Math.sin(h), uz = Math.cos(h), sx = Math.cos(h) * side, sz = -Math.sin(h) * side;
   const at = (off, along) => [a.x + sx * off + ux * along, a.z + sz * off + uz * along];
   const alongOf = P => (P.x - a.x) * ux + (P.z - a.z) * uz;
-  let T = a.traffic;
-  if (!T) T = a.traffic = { phase: 'wait', t: 4 + hash2(i, 55) * 20, k: Math.floor(hash2(i, 56) * stands.length), plane: null, n: 0 };
+  if (!a.traffic) a.traffic = [null, null];
+  let T = a.traffic[slot];
+  if (!T) T = a.traffic[slot] = { phase: 'wait', t: 4 + slot * 35 + hash2(i, 55 + slot) * 20, k: Math.floor(hash2(i, 56) * stands.length) + slot, plane: null, n: 0, slot };
   const st = stands[T.k % stands.length], m = st.m, P = T.plane, half = a.len / 2, TAXI = 28;
   const standAlong = (st.x - a.x) * ux + (st.z - a.z) * uz;
   const gy = a.apron.y + m.gearLen;
@@ -3922,6 +3926,7 @@ function trafficStep(a, i, dt) {
   if (T.phase === 'wait') {
     T.t -= dt;
     if (T.t > 0) return;
+    if (st.away) { T.k++; return; }
     st.away = true;
     T.dir = standAlong >= 0 ? 1 : -1;
     T.plane = { m, paint: st.paint, x: st.x, y: gy, z: st.z, yaw: st.yaw, pitch: 0, v: 0, up: false, call: callOf(st, i * 31 + T.n) };
@@ -3931,7 +3936,7 @@ function trafficStep(a, i, dt) {
   } else if (T.phase === 'push') {
     if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, T.dir * (half - 80)), v: 15 }; T.phase = 'taxi'; trafficCall(a, i, `${P.call}, TAXI TO RUNWAY ${rwyNum((T.dir > 0 ? h + Math.PI : h) * RAD2DEG)}`); }
   } else if (T.phase === 'taxi') {
-    if (trafficFollow(P, T.way, dt)) { T.way = { p: at(0, T.dir * (half - 70)), v: 7 }; T.phase = 'lineup'; }
+    if (trafficFollow(P, T.way, dt)) { if (a.rw != null && a.rw !== slot) return; a.rw = slot; T.way = { p: at(0, T.dir * (half - 70)), v: 7 }; T.phase = 'lineup'; }
   } else if (T.phase === 'lineup') {
     if (trafficFollow(P, T.way, dt)) { T.phase = 'turn'; T.face = T.dir > 0 ? h + Math.PI : h; }
   } else if (T.phase === 'turn') {
@@ -3947,10 +3952,13 @@ function trafficStep(a, i, dt) {
       P.y = gy + P.alt;
       if (P.alt > 14) P.up = true;
     }
+    if (P.alt > 25 && a.rw === slot) a.rw = null;
     if (P.alt > 450 || Math.hypot(P.x - a.x, P.z - a.z) > 3300) { T.plane = null; T.phase = 'away'; T.t = 25 + hash2(i + T.n, 57) * 45; }
   } else if (T.phase === 'away') {
     T.t -= dt;
     if (T.t > 0) return;
+    if (a.rw != null && a.rw !== slot) return;
+    a.rw = slot;
     T.l = hash2(i, 60 + T.n) < 0.5 ? 1 : -1;
     const yawL = T.l > 0 ? h : h + Math.PI, start = at(0, -T.l * (half + 2600));
     T.plane = { m, paint: st.paint, x: start[0], y: gy + 143, z: start[1], yaw: yawL, pitch: -0.05, v: m.stall * 1.35, up: true, alt: 143 };
@@ -3967,7 +3975,7 @@ function trafficStep(a, i, dt) {
   } else if (T.phase === 'rollout') {
     P.v = Math.max(13, P.v - 3 * dt);
     P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt;
-    if (P.v <= 13.01) { T.way = { p: at(TAXI, alongOf(P) + T.l * 110), v: 12 }; T.phase = 'exit'; }
+    if (P.v <= 13.01) { T.way = { p: at(TAXI, alongOf(P) + T.l * 110), v: 12 }; T.phase = 'exit'; if (a.rw === slot) a.rw = null; }
   } else if (T.phase === 'exit') {
     if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, standAlong), v: 15 }; T.phase = 'taxiIn'; }
   } else if (T.phase === 'taxiIn') {
@@ -3981,8 +3989,41 @@ function trafficUpdate(dt) {
   for (const [i, a] of AIRPORTS.entries()) {
     if (!a.apron) continue;
     if (Math.abs(p.pos[0] - a.x) > TRAFFIC_RANGE || Math.abs(p.pos[2] - a.z) > TRAFFIC_RANGE) { if (a.traffic) trafficStop(a); continue; }
-    trafficStep(a, i, dt);
+    trafficStep(a, i, dt, 0);
+    if (a.stands.length > 1) trafficStep(a, i, dt, 1);
   }
+}
+// ---------- sky traffic: airliners flying real routes between the airports, climbing out, cruising and descending to the next runway
+const SKY_N = 10, SKY_SPEED = 115;
+const skyRoutes = [];
+function skyFlight(k, t) {
+  let r = skyRoutes[k];
+  if (!r) {
+    const pool = PARK_POOLS.big, m = MODELS.find(q => q.name === pool[Math.floor(hash2(k, 3001) * pool.length)]);
+    let A = Math.floor(hash2(k, 3002) * AIRPORTS.length), B = Math.floor(hash2(k, 3003) * AIRPORTS.length);
+    if (A === B) B = (B + 7) % AIRPORTS.length;
+    const a = AIRPORTS[A], b = AIRPORTS[B], dist = Math.hypot(b.x - a.x, b.z - a.z);
+    const col = PARK_COLS[Math.floor(hash2(k, 3004) * PARK_COLS.length)];
+    r = skyRoutes[k] = { m, a, b, dist, dur: dist / SKY_SPEED, cycle: dist / SKY_SPEED + 40, off: hash2(k, 3005) * 600, cruise: 700 + hash2(k, 3006) * 700, yaw: Math.atan2(b.x - a.x, b.z - a.z), paint: { body: m.spec.body, stripe: col, wing: m.spec.wing.col, fin: col } };
+  }
+  const c = (t + r.off) % r.cycle;
+  if (c > r.dur) return null;   // on the ground between flights
+  const f = c / r.dur, ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+  const alt = r.cruise * Math.min(ease(f / 0.22), ease((1 - f) / 0.22));
+  const x = r.a.x + (r.b.x - r.a.x) * f, z = r.a.z + (r.b.z - r.a.z) * f;
+  const gy = terrainAt(x, z) + r.m.gearLen + 8;
+  const slope = (r.cruise * (f < 0.5 ? ease((f + 0.01) / 0.22) - ease(f / 0.22) : ease((1 - f - 0.01) / 0.22) - ease((1 - f) / 0.22)) / (0.01 * r.dist)) * (f < 0.5 ? 1 : -1);
+  return { m: r.m, paint: r.paint, x, y: Math.max(gy, terrainAt(x, z) + 60 + alt), z, yaw: r.yaw, pitch: clamp(Math.atan(slope), -0.12, 0.14), up: alt > 20 };
+}
+function pushModelTris(st) {
+  const pos = [st.x, st.y, st.z];
+    const sy = Math.sin(st.yaw), cy = Math.cos(st.yaw), sp = Math.sin(st.pitch), cp = Math.cos(st.pitch);
+    // forward, up and right of the plane for its heading and nose-up angle
+    const f = [sy * cp, sp, cy * cp], rt = [cy, 0, -sy], up = [-sp * sy, cp, -sp * cy];
+    const tw = v => [pos[0] + rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], pos[1] + rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], pos[2] + rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
+    const td = v => [rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
+    for (const face of st.m.mesh) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: paintColor(st.paint, face) });
+    if (!st.up) for (const face of st.m.gear) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: face.col });
 }
 // ---------- airport props: a jet bridge at every stand, a fuel truck beside each parked plane, and service vans driving along the apron
 function pushBox(cx, y0, cz, yaw, lx, ly, lz, col) {
@@ -4419,24 +4460,27 @@ function render() {
   // parked planes: the nearest few airports' stands, with their meshes sent to the WebGL layer like the player's plane
   if (useGL) {
     let drawn = 0;
+    const tNow = performance.now() / 1000;
+    const skyList = [];
+    for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - eye[0], q.z - eye[2]) < 3600) skyList.push(q); }
     for (const [i, a] of AIRPORTS.entries()) {
       if (!a.apron || Math.abs(a.x - eye[0]) > 3600 || Math.abs(a.z - eye[2]) > 3600) continue;
       const list = standsOf(a, i).filter(st => !st.away).map(st => ({ m: st.m, paint: st.paint, x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: 0, up: false }));
-      if (a.traffic && a.traffic.plane) list.push(a.traffic.plane);
+      for (const slot of (a.traffic || [])) if (slot && slot.plane) list.push(slot.plane);
       if (Math.hypot(a.x - eye[0], a.z - eye[2]) < 1100) airportProps(a, i);
       for (const st of list) {
         const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
         if (d > 2200 || d < 3 || drawn >= 10) continue;
         if (blockedFrom(eye, add(pos, [0, 4, 0])) || blockedByAirportBuildings(a, eye, add(pos, [0, 3, 0]))) continue;
-        const sy = Math.sin(st.yaw), cy = Math.cos(st.yaw), sp = Math.sin(st.pitch), cp = Math.cos(st.pitch);
-        // forward, up and right of the plane for its heading and nose-up angle
-        const f = [sy * cp, sp, cy * cp], rt = [cy, 0, -sy], up = [-sp * sy, cp, -sp * cy];
-        const tw = v => [pos[0] + rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], pos[1] + rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], pos[2] + rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
-        const td = v => [rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
-        for (const face of st.m.mesh) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: paintColor(st.paint, face) });
-        if (!st.up) for (const face of st.m.gear) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: face.col });
+        pushModelTris(st);
         drawn++;
       }
+    }
+    for (const st of skyList) {
+      if (drawn >= 14) break;
+      if (blockedFrom(eye, [st.x, st.y, st.z])) continue;
+      pushModelTris(st);
+      drawn++;
     }
   }
   // the aircraft itself: every face of its mesh, painted with the rest of the scene
