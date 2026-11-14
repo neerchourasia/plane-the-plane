@@ -98,7 +98,7 @@
 // The land: a real region's height map (terrain-<name>.js, real elevation data) or the classic made-up land.
 var REGION_ID = 'classic';
 try { REGION_ID = localStorage.getItem('plane-the-plane-region') || 'classic'; } catch (e) { /* storage blocked */ }
-if (!/^(alps|canyon|hawaii|rainier|everest|fjord|fuji)$/.test(REGION_ID)) REGION_ID = 'classic';
+if (!/^(alps|canyon|hawaii|rainier|everest|fjord|fuji|iceland|dolomites|patagonia)$/.test(REGION_ID)) REGION_ID = 'classic';
 if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID + '.js"><\/script>');
 </script>
 <style>
@@ -953,7 +953,10 @@ const LAND = REGION
        hawaii: { rockH: 99999, snowH: 99999, rock: [74, 66, 62], tint: [56, 120, 62], tintK: 0.4 },
        everest: { rockH: 330, snowH: 560, rock: [128, 120, 110], tint: [96, 110, 64], tintK: 0.3 },
        fjord: { rockH: 420, snowH: 640, rock: [112, 110, 106], tint: [58, 100, 58], tintK: 0.4 },
-       fuji: { rockH: 520, snowH: 700, rock: [70, 66, 66], tint: [48, 96, 52], tintK: 0.45 } })[REGION.id]
+       fuji: { rockH: 520, snowH: 700, rock: [70, 66, 66], tint: [48, 96, 52], tintK: 0.45 },
+       iceland: { rockH: 260, snowH: 430, rock: [72, 68, 66], tint: [86, 104, 62], tintK: 0.55 },
+       dolomites: { rockH: 420, snowH: 650, rock: [176, 170, 160], tint: [62, 102, 58], tintK: 0.35 },
+       patagonia: { rockH: 520, snowH: 740, rock: [122, 114, 104], tint: [150, 140, 92], tintK: 0.5 } })[REGION.id]
   : { rockH: 350, snowH: 700, rock: ROCK };
 // true on steep ground, so houses are not put on a cliff
 const steep = (x, z) => Math.abs(naturalAt(x + 40, z) - naturalAt(x - 40, z)) > 30 || Math.abs(naturalAt(x, z + 40) - naturalAt(x, z - 40)) > 30;
@@ -2381,7 +2384,10 @@ const REGION_LIST = [
   { id: 'rainier', name: 'Mount Rainier', text: 'Forested ridges climbing toward the huge snow-capped volcano.' },
   { id: 'everest', name: 'Everest, Khumbu Valley', text: 'The high Himalaya: steep rocky valleys under the highest mountains on Earth.' },
   { id: 'fjord', name: 'Norway, Geirangerfjord', text: 'A narrow blue fjord between steep green walls and snowy plateaus.' },
-  { id: 'fuji', name: 'Japan, Mount Fuji', text: 'Dark forest around a blue lake, under the great cone of Mount Fuji.' }
+  { id: 'fuji', name: 'Japan, Mount Fuji', text: 'Dark forest around a blue lake, under the great cone of Mount Fuji.' },
+  { id: 'iceland', name: 'Iceland, Thingvellir', text: 'A huge lake in a rift valley, black lava fields and mossy hills.' },
+  { id: 'dolomites', name: 'Italy, Dolomites, Cortina', text: 'Pale rock towers rising over green alpine valleys.' },
+  { id: 'patagonia', name: 'Patagonia, Torres del Paine', text: 'Wind-swept steppe below jagged granite spires and glaciers.' }
 ];
 let regionsOpen = false;
 function toggleRegions() {
@@ -5944,7 +5950,7 @@ function buildTreeData(map) {
   const nearRiver = (x, z) => RIVERS.some(r => Math.abs(x - riverX(r, z)) < 40);
   const NC = Math.round(12 * WS), CH = 1000;   // chunks of 1 km
   const conif = Array.from({ length: NC * NC }, () => []), broad = Array.from({ length: NC * NC }, () => []);
-  const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1, everest: 0.6, fjord: 0.75, fuji: 0.8 })[REGION.id] : 0.45;
+  const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1, everest: 0.6, fjord: 0.75, fuji: 0.8, iceland: 0.25, dolomites: 0.85, patagonia: 0.4 })[REGION.id] : 0.45;
   const STEP = 23, G = Math.floor(2 * TER_HALF / STEP);
   for (let gi = 0; gi < G; gi++) {
     for (let gj = 0; gj < G; gj++) {
