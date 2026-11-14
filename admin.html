@@ -50,6 +50,7 @@
         </table>
       </div>
       <button id="refresh" class="ghost">Refresh</button>
+      <button id="delTests" class="ghost">Delete test pilots (names starting with probe)</button>
       <button id="signout" class="ghost">Sign out</button>
       <a href="index.html">Back to the game</a>
     </div>
@@ -99,11 +100,27 @@ async function removePilot(name) {
   }
 }
 
+let lastPilots = [];
+// removes every pilot whose name starts with probe, after one confirmation that lists them
+async function deleteTests() {
+  const names = lastPilots.map(p => p.name).filter(n => n.startsWith('probe'));
+  if (!names.length) { $('loadErr').textContent = 'No test pilots found.'; return; }
+  if (!confirm(`Delete these ${names.length} test pilots and their saves? This cannot be undone.\n\n${names.join(', ')}`)) return;
+  const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
+  try {
+    for (const name of names) await api('/api/delete', { method: 'POST', body: { name }, token });
+    render();
+  } catch (e) {
+    $('loadErr').textContent = e.message || "Couldn't delete the test pilots.";
+  }
+}
+
 async function render() {
   const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
   $('loadErr').textContent = '';
   try {
     const { pilots } = await api('/api/admin', { token });
+    lastPilots = pilots;
     const rows = $('rows');
     rows.innerHTML = '';
     for (const p of pilots) {
@@ -131,6 +148,7 @@ async function render() {
 $('enter').onclick = enter;
 $('pass').addEventListener('keydown', e => { if (e.key === 'Enter') enter(); });
 $('refresh').onclick = render;
+$('delTests').onclick = deleteTests;
 $('signout').onclick = () => { try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) { /* storage blocked */ } location.reload(); };
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>

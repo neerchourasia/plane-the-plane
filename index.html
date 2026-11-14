@@ -81,6 +81,14 @@
 #rotateHint { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; text-align: center; background: rgba(4,8,18,0.88); color: #e8fff5; z-index: 40; font: 600 18px ui-monospace, Menlo, monospace; padding: 24px; }
 @media (max-width: 600px) { #tbtns { width: 176px; gap: 6px; } #tbtns button { padding: 10px 4px; font-size: 11px; } #stick { width: 120px; height: 120px; } }
 </style>
+<style>
+#account { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.9); z-index: 22; }
+#account .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(440px, 94vw); }
+#account label { display: grid; gap: 4px; font-size: 13px; margin: 8px 0; }
+#account input { font: inherit; background: #0b1424; color: #e8fff5; border: 1px solid #2a3d5c; border-radius: 6px; padding: 7px 9px; }
+#account h3 { margin: 16px 0 4px; font-size: 15px; }
+#account .danger { background: #3a1a1a; color: #ffb3b3; border: 1px solid #7a3030; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -143,6 +151,22 @@
   </div>
 </div>
 <input id="chatBox" maxlength="80" placeholder="Say something to pilots online, then press Enter (public)" autocomplete="off">
+<div id="account">
+  <div class="card">
+    <h2>Account</h2>
+    <p class="hint" id="acctWho"></p>
+    <h3>Change password</h3>
+    <label>Current password <input id="acctOld" type="password" maxlength="64" autocomplete="current-password"></label>
+    <label>New password <input id="acctNew" type="password" maxlength="64" autocomplete="new-password"></label>
+    <button id="acctChange">Change password</button>
+    <h3>Delete this account</h3>
+    <p class="hint">Removes the pilot and its progress from the server. This cannot be undone.</p>
+    <label>Password <input id="acctDel" type="password" maxlength="64" autocomplete="current-password"></label>
+    <button id="acctDelete" class="danger">Delete my account</button>
+    <p class="hint" id="acctMsg"></p>
+    <button id="acctClose">Close</button>
+  </div>
+</div>
 <div id="teleport">
   <div class="card">
     <h2>Teleport</h2>
@@ -163,6 +187,7 @@
       <button id="homeWorld">World map</button>
       <button id="homeSchool">Flight school</button>
       <button id="homeRaces">Air races</button>
+      <button id="homeAccount">Account</button>
       <button id="homeAdmin">Admin</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
@@ -2077,6 +2102,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyY' && !e.repeat && pilot && !homeOpen && !chatOpen) { e.preventDefault(); return openChat(); }
+  if (accountOpen && e.code === 'Escape') return toggleAccount();
   if (racesOpen && e.code === 'Escape') return toggleRaces();
   if (schoolOpen && e.code === 'Escape') return toggleSchool();
   if (worldOpen && (e.code === 'Escape' || e.code === 'KeyU')) return toggleWorld();
@@ -2871,7 +2897,7 @@ function updateHeli(dt) {
 
 function update(dt) {
   const p = plane;
-  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen) return;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen || accountOpen) return;
   const m = p.model;
   windT += dt;
   fogEnd = FOG_END - fogLevel() * 2800;
@@ -4326,8 +4352,60 @@ function showLogin() {
 // sends any unsaved progress, then forgets this browser's sign-in
 async function signOut() {
   if (saveDirty) await pushSave();
+  const token = storeGet(TOKEN_KEY);
+  if (token) api('/api/account', { method: 'POST', token, body: { action: 'logout' } }).catch(() => {});
   storeDel(TOKEN_KEY);
   showLogin();
+}
+
+// ---------- account screen: change the password, or delete the account
+let accountOpen = false;
+function toggleAccount() {
+  accountOpen = !accountOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('account').style.display = accountOpen ? 'flex' : 'none';
+  if (accountOpen) {
+    document.getElementById('acctWho').textContent = `Signed in as ${pilot}`;
+    document.getElementById('acctMsg').textContent = '';
+    for (const id of ['acctOld', 'acctNew', 'acctDel']) document.getElementById(id).value = '';
+  }
+}
+async function changePassword() {
+  const msg = document.getElementById('acctMsg');
+  const oldPassword = document.getElementById('acctOld').value, newPassword = document.getElementById('acctNew').value;
+  msg.textContent = '';
+  if (newPassword.length < 4) { msg.textContent = 'Use a new password of at least 4 characters.'; return; }
+  try {
+    await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'password', oldPassword, newPassword } });
+    msg.textContent = 'Password changed.';
+    document.getElementById('acctOld').value = document.getElementById('acctNew').value = '';
+  } catch (e) {
+    msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
+  }
+}
+async function deleteAccount() {
+  const msg = document.getElementById('acctMsg');
+  const password = document.getElementById('acctDel').value;
+  msg.textContent = '';
+  if (!password) { msg.textContent = 'Type your password to confirm.'; return; }
+  if (!confirm(`Delete ${pilot} and all of its progress? This cannot be undone.`)) return;
+  const name = pilot;
+  try {
+    await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'delete', password } });
+    storeDel(TOKEN_KEY); storeDel(pilotKey(name)); storeDel(PENDING_KEY);
+    storeSet(NAMES_KEY, JSON.stringify(readJSON(NAMES_KEY, []).filter(n => n !== name)));
+    saveDirty = false;
+    toggleAccount();
+    showLogin();
+    document.getElementById('loginMsg').textContent = 'Account deleted.';
+  } catch (e) {
+    msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
+  }
+}
+for (const id of ['acctOld', 'acctNew', 'acctDel']) {
+  const el = document.getElementById(id);
+  el.addEventListener('keydown', e => e.stopPropagation());   // typing a password must not fly the plane
+  el.addEventListener('keyup', e => e.stopPropagation());
 }
 function signIn(name, saved) {
   pilot = name;
@@ -4385,9 +4463,22 @@ async function submitLogin(create) {
     const data = await api(create ? '/api/signup' : '/api/login', { method: 'POST', body: { name, password: pass } });
     storeSet(TOKEN_KEY, data.token);
     rememberName(data.name);
-    signIn(data.name, data.save);
+    // a pilot made again under a name this browser still has progress for gets that progress back
+    const local = create ? readJSON(pilotKey(data.name), null) : null;
+    if (local && Object.keys(local).length) {
+      signIn(data.name, local);
+      saveDirty = true;
+      pushSave();
+      flashNote('PROGRESS RESTORED FROM THIS BROWSER');
+    } else {
+      signIn(data.name, data.save);
+    }
   } catch (e) {
-    msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
+    if (!create && e.status === 404 && readJSON(pilotKey(name.toLowerCase()), null)) {
+      msg.textContent = 'This pilot is not on the server any more. Press Create pilot with the same name to bring your saved progress back.';
+    } else {
+      msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
+    }
   }
 }
 document.getElementById('loginIn').onclick = () => submitLogin(false);
@@ -4403,6 +4494,10 @@ document.getElementById('homeSwitch').onclick = signOut;
 document.getElementById('worldClose').onclick = toggleWorld;
 document.getElementById('schoolClose').onclick = toggleSchool;
 document.getElementById('racesClose').onclick = toggleRaces;
+document.getElementById('acctClose').onclick = toggleAccount;
+document.getElementById('acctChange').onclick = changePassword;
+document.getElementById('acctDelete').onclick = deleteAccount;
+document.getElementById('homeAccount').onclick = () => { hideHome(); toggleAccount(); };
 document.getElementById('homeRaces').onclick = () => { hideHome(); toggleRaces(); };
 document.getElementById('homeSchool').onclick = () => { hideHome(); toggleSchool(); };
 document.getElementById('homeWorld').onclick = () => { hideHome(); toggleWorld(); };

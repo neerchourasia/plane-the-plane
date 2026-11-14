@@ -1,4 +1,4 @@
-import { db, cleanName, samePassword, startSession, DEFAULT_SAVE } from '../lib/accounts.js';
+import { db, cleanName, samePassword, startSession, DEFAULT_SAVE, blocked, noteFail, clearFails } from '../lib/accounts.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Use POST.' });
@@ -9,7 +9,12 @@ export default async function handler(req, res) {
   const raw = await r.get('pilot:' + name);
   if (!raw) return res.status(404).json({ error: 'No pilot with that name. Create one instead.' });
   const pilot = JSON.parse(raw);
-  if (!samePassword(password, pilot.salt, pilot.hash)) return res.status(401).json({ error: 'Wrong password.' });
+  if (await blocked(name)) return res.status(429).json({ error: 'Too many wrong passwords. Try again in 15 minutes.' });
+  if (!samePassword(password, pilot.salt, pilot.hash)) {
+    await noteFail(name);
+    return res.status(401).json({ error: 'Wrong password.' });
+  }
+  await clearFails(name);
   pilot.lastSignIn = new Date().toISOString();
   await r.set('pilot:' + name, JSON.stringify(pilot));
   const token = await startSession(name);
