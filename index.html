@@ -251,6 +251,8 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <button id="switchPilot">Switch pilot</button>
     <div id="list"></div>
     <button id="openLivery">Livery maker</button>
+    <h3>Campaign</h3>
+    <div id="campaign"></div>
     <h3>Missions</h3>
     <div id="missions"></div>
     <h3>Repairs</h3>
@@ -2960,6 +2962,7 @@ function awardLanding(impact) {
   const fieldHere = AIRPORTS.find(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300);
   if (fieldHere) { save.visited = save.visited || []; if (!save.visited.includes(fieldHere.code)) save.visited.push(fieldHere.code); }
   if (daylight() < 0.45) save.nightLanding = true;
+  if (terrainAt(p.pos[0], p.pos[2]) > 300) save.highLandings = (save.highLandings || 0) + 1;
   // a cargo or passenger job: the first landing picks up, the second (at the drop-off) pays
   if (c && c.kind && c.stage === 0 && Math.hypot(p.pos[0] - c.x, p.pos[2] - c.z) < 200) {
     c.stage = 1;
@@ -3019,6 +3022,45 @@ const MISSIONS = [
   { id: 'storm20', text: 'Fly 20 seconds inside a thunderstorm and live', hint: 'Dark cells drift across the map. Turbulence is strong inside, so keep the wings level.', pay: 400, done: p => (p.stormSecs || 0) >= 20 },
   { id: 'escort30', text: 'Escort an airliner for 30 seconds', hint: 'Fly within 300 m of an airliner on its route and keep up with it.', pay: 450, done: p => (p.escortSecs || 0) >= 30 }
 ];
+// ---------- campaign: a story told in eight chapters, each one a flying task that must be done in order
+const CAMPAIGN = [
+  { title: 'First light', story: 'The old mail strip has been silent for years. Show the town that planes still fly: stay up and cover 3 km in one flight.', done: p => p.flight.dist >= 3000, pay: 200 },
+  { title: 'The mail run', story: 'A bag of letters waits at the next airfield. Finish a contract from the hangar.', done: () => (save.completed || 0) >= 1, pay: 300 },
+  { title: 'Weather front', story: 'A storm cell sits on the route to the coast. Fly 20 seconds inside a thunderstorm and come out the other side.', done: p => (p.stormSecs || 0) >= 20, pay: 400 },
+  { title: 'Fog bound', story: 'An island airport has not seen a plane for days because of fog. Land at an airport while fog covers it.', done: () => (save.fogLandings || 0) >= 1, pay: 500 },
+  { title: 'Instrument rating', story: 'The island strip has no tower crew. Prove you can bring a plane in by instruments: land 3 times with the ILS autoland.', done: () => (save.ilsLandings || 0) >= 3, pay: 600 },
+  { title: 'Medicine for the island', story: 'The clinic needs a delivery. Finish 3 contracts in total, passengers or cargo.', done: () => (save.completed || 0) >= 3, pay: 700 },
+  { title: 'High field', story: 'A research station sits on a plateau above 300 m. Land at an airport that high; the Alps, Everest or Patagonia regions are good places to look.', done: () => (save.highLandings || 0) >= 1, pay: 800 },
+  { title: 'Around the world', story: 'The last chapter: land at 20 different airports.', done: () => (save.visited || []).length >= 20, pay: 1500 }
+];
+function checkCampaign() {
+  if (!pilot) return;
+  const c = save.campaign || 0;
+  if (c >= CAMPAIGN.length) return;
+  const ch = CAMPAIGN[c];
+  if (!ch.done(plane)) return;
+  save.campaign = c + 1;
+  save.coins += ch.pay; save.xp += Math.round(ch.pay / 2);
+  writeSave();
+  flashNote(`CAMPAIGN: ${ch.title.toUpperCase()} COMPLETE +${ch.pay} COINS`);
+  playTones([[523, 0, 0.15], [659, 0.15, 0.15], [784, 0.3, 0.15], [1047, 0.45, 0.5]]);
+}
+function renderCampaign() {
+  const box = document.getElementById('campaign');
+  if (!box) return;
+  box.innerHTML = '';
+  const c = save.campaign || 0;
+  CAMPAIGN.forEach((ch, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${i < c ? 'DONE' : i === c ? 'NOW ' : 'LOCKED'}  Chapter ${i + 1}: ${ch.title} - ${ch.pay} coins`;
+    row.append(label);
+    box.append(row);
+    if (i === c) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = ch.story; h.style.margin = '0 0 6px 0'; box.append(h); }
+  });
+  if (c >= CAMPAIGN.length) { const d = document.createElement('p'); d.className = 'hint'; d.textContent = 'You have finished the campaign. Well flown, captain.'; box.append(d); }
+}
 function checkMissions() {
   if (!pilot) return;
   save.missions = save.missions || [];
@@ -3121,6 +3163,7 @@ function toggleHangar() {
 }
 // the missions and best flights shown in the hangar
 function renderExtras() {
+  renderCampaign();
   renderDaily();
   renderBadges();
   renderRepairs();
@@ -6843,6 +6886,7 @@ function frame(now) {
   drawMinimap();
   updateSound();
   checkMissions();
+  checkCampaign();
   checkDaily();
   checkBadges();
   updateTower();
