@@ -2023,6 +2023,7 @@ let lightning = 0;
 function updateStorm(p, dt) {
   const st = stormStrength(p.pos);
   p.stormLevel = st;
+  if (st > 0.5) p.stormSecs = (p.stormSecs || 0) + dt;
   if (st > 0.05) {
     p.roll += (Math.random() - 0.5) * 1.6 * st * dt;
     p.pitch += (Math.random() - 0.5) * 0.9 * st * dt;
@@ -2908,6 +2909,11 @@ function awardLanding(impact) {
   if (lesson) lesson.landed = impact;
   save.landings = (save.landings || 0) + 1;
   bumpDaily('landings');
+  // landings that count toward the weather and autopilot missions
+  const ils = !!(p.ap && p.ap.ils), fog = fogAtPlace(p.pos[0], p.pos[2]) > 0.5;
+  if (ils) save.ilsLandings = (save.ilsLandings || 0) + 1;
+  if (fog) { save.fogLandings = (save.fogLandings || 0) + 1; if (ils) save.fogIlsLandings = (save.fogIlsLandings || 0) + 1; }
+  { const fi = AIRPORTS.findIndex(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300); if (fi >= 0 && bestEnd(AIRPORTS[fi], fi).xwind >= 10) save.xwindLandings = (save.xwindLandings || 0) + 1; }
   if (impact > 4) addWear((impact - 4) * 4);
   // remember which airports you have landed at, and whether it was dark
   const fieldHere = AIRPORTS.find(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300);
@@ -2960,7 +2966,13 @@ const MISSIONS = [
   { id: 'air10', text: 'Stay up 10 minutes in one flight', hint: 'Stay in the air for 10 minutes without landing. The autopilot (P) helps.', pay: 250, done: p => p.flight.secs >= 600 },
   { id: 'barrel3', text: 'Do 3 barrel rolls', hint: 'In the air above 40 m/s, press X for a barrel roll.', pay: 200, done: () => (save.barrels || 0) >= 3 },
   { id: 'contracts3', text: 'Finish 3 contracts', hint: 'Accept a job in the hangar, then follow the gold arrow to the airport.', pay: 300, done: () => (save.completed || 0) >= 3 },
-  { id: 'rings12', text: 'Fly through all 12 rings', hint: 'Follow the gold arrow to each gold ring until all 12 are done.', pay: 300, done: () => (save.ringsFlown || 0) >= 12 }
+  { id: 'rings12', text: 'Fly through all 12 rings', hint: 'Follow the gold arrow to each gold ring until all 12 are done.', pay: 300, done: () => (save.ringsFlown || 0) >= 12 },
+  { id: 'ils3', text: 'Land 3 times with the ILS autoland', hint: 'Gear down, point at a runway within 9 km and press I. The plane flies the glide slope and lands itself.', pay: 350, done: () => (save.ilsLandings || 0) >= 3 },
+  { id: 'fog1', text: 'Land in fog', hint: 'Fog banks drift across the map. When the tower reports fog, land at that airport (the ILS helps).', pay: 400, done: () => (save.fogLandings || 0) >= 1 },
+  { id: 'ilsfog', text: 'Land in fog with the ILS', hint: 'Combine the two: use I on the approach when the tower reports fog.', pay: 600, done: () => (save.fogIlsLandings || 0) >= 1 },
+  { id: 'xwind2', text: 'Land twice in a crosswind of 10 knots or more', hint: 'The tower reports the crosswind. Crab into the wind on the approach and straighten up at the last moment.', pay: 400, done: () => (save.xwindLandings || 0) >= 2 },
+  { id: 'storm20', text: 'Fly 20 seconds inside a thunderstorm and live', hint: 'Dark cells drift across the map. Turbulence is strong inside, so keep the wings level.', pay: 400, done: p => (p.stormSecs || 0) >= 20 },
+  { id: 'escort30', text: 'Escort an airliner for 30 seconds', hint: 'Fly within 300 m of an airliner on its route and keep up with it.', pay: 450, done: p => (p.escortSecs || 0) >= 30 }
 ];
 function checkMissions() {
   if (!pilot) return;
@@ -3886,7 +3898,7 @@ function update(dt) {
   }
 
   trafficUpdate(dt);
-  { const tNow = performance.now() / 1000; for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
+  { const tNow = performance.now() / 1000; let near = false; for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - p.pos[0], q.z - p.pos[2]) < 300 && Math.abs(q.y - p.pos[1]) < 120 && !p.onGround) near = true; } if (near) p.escortSecs = (p.escortSecs || 0) + dt; for (let k = 0; k < SKY_N; k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
   // a plane that is taxiing, taking off or landing
   for (const a of AIRPORTS) {
     for (const slot of (a.traffic || [])) {
