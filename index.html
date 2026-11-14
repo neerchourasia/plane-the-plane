@@ -1757,6 +1757,39 @@ const LESSONS = [
     ]
   },
   {
+    id: 'practice', name: 'Landing practice: 5 km final',
+    setup: l => {
+      resetPlane(1);
+      const p = plane;
+      // the nearest airport whose final approach is clear of hills
+      const cands = AIRPORTS.map((a, i) => [i, Math.hypot(a.x - p.pos[0], a.z - p.pos[2])]).sort((u, v) => u[1] - v[1]);
+      // clearance of the glide path above the ground, sampled every 100 m and 120 m to each side
+      const clearance = q => {
+        let c = 1e9;
+        for (let d = 200; d <= 5000; d += 100) for (const side of [-120, 0, 120]) {
+          const x = q.TD[0] - q.ux * d + q.uz * side, z = q.TD[1] - q.uz * d - q.ux * side;
+          c = Math.min(c, q.gy + d * 0.0524 - terrainAt(x, z));
+        }
+        return c;
+      };
+      let pick = null, bestC = -1e9;
+      for (const [i] of cands.slice(0, 60)) {
+        const q = approachPoints(AIRPORTS[i], i), c = clearance(q);
+        if (c > bestC) { bestC = c; pick = [i, q]; }
+        if (c > 60) break;
+      }
+      const [i, q] = pick, run = 5000;
+      p.onGround = false; p.gear = false; p.pos = [q.TD[0] - q.ux * run, q.gy + run * 0.0524 + 15, q.TD[1] - q.uz * run];
+      p.yaw = q.end.hdg; const v = p.model.stall * 1.6; p.vel = [Math.sin(p.yaw) * v, 0, Math.cos(p.yaw) * v]; p.speed = v; p.throttle = 0.45;
+      l.target = q; l.field = i; l.landed = undefined;
+    },
+    steps: [
+      { text: 'Lower the landing gear (G) and slow down', ok: p => p.gear },
+      { text: 'Follow the glide path: stay near the 3 degree slope', ok: (p, l) => { const d = (p.pos[0] - l.target.TD[0]) * l.target.ux + (p.pos[2] - l.target.TD[1]) * l.target.uz; return d > -1200; } },
+      { text: 'Touch down near the aiming point, under 3.5 m/s sink', ok: (p, l) => l.landed !== undefined && l.landed < 3.5 && Math.hypot(p.pos[0] - l.target.TD[0], p.pos[2] - l.target.TD[1]) < 700 }
+    ]
+  },
+  {
     id: 'landing', name: 'A landing',
     setup: l => {
       resetPlane(1);
@@ -2973,10 +3006,10 @@ function awardLanding(impact) {
   const ils = !!(p.ap && p.ap.ils), fog = fogAtPlace(p.pos[0], p.pos[2]) > 0.5;
   if (ils) save.ilsLandings = (save.ilsLandings || 0) + 1;
   if (fog) { save.fogLandings = (save.fogLandings || 0) + 1; if (ils) save.fogIlsLandings = (save.fogIlsLandings || 0) + 1; }
-  { const fi = AIRPORTS.findIndex(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300); if (fi >= 0 && bestEnd(AIRPORTS[fi], fi).xwind >= 10) save.xwindLandings = (save.xwindLandings || 0) + 1; }
+  { const fi = nearestFieldIndex(p); if (fi >= 0 && bestEnd(AIRPORTS[fi], fi).xwind >= 10) save.xwindLandings = (save.xwindLandings || 0) + 1; }
   if (impact > 4) addWear((impact - 4) * 4);
   // remember which airports you have landed at, and whether it was dark
-  const fieldHere = AIRPORTS.find(a => Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 300);
+  const fieldHere = AIRPORTS[nearestFieldIndex(p)];
   if (fieldHere) { save.visited = save.visited || []; if (!save.visited.includes(fieldHere.code)) save.visited.push(fieldHere.code); }
   if (daylight() < 0.45) save.nightLanding = true;
   if (terrainAt(p.pos[0], p.pos[2]) > 300) save.highLandings = (save.highLandings || 0) + 1;
@@ -3001,6 +3034,7 @@ function awardLanding(impact) {
     return;
   }
   const grade = impact < 1 ? 'BUTTER' : impact < 2.5 ? 'GREAT' : impact < 5 ? 'OK' : 'HARD';
+  makeLandingReport(impact, nearestFieldIndex(p));
   // landing score for the online board, and a shout on the shared channel for the best and worst landings
   save.landingScore = (save.landingScore || 0) + ({ BUTTER: 10, GREAT: 6, OK: 3, HARD: 0 })[grade];
   if (grade === 'BUTTER') save.butters = (save.butters || 0) + 1;
@@ -3496,6 +3530,82 @@ function toggleGear() {
 // Autopilot holds the heading and altitude it was engaged at, and only works in the air.
 // ILS autoland: with the gear down and a runway ahead, the autopilot follows the centre line and the 3 degree glide slope, cuts the power
 // in the flare and lets the plane settle onto the runway.
+// ---------- landing report: the approach is recorded on final, then scored against the glide slope and centre line when you touch down
+const landTrack = { pts: [], t: 0, lost: 0 };
+let landReport = null;
+function findFinal(p) {
+  let q = null;
+  // in landing practice only the exercise's own runway counts
+  const only = lesson && lesson.target ? lesson.field : -1;
+  AIRPORTS.forEach((a, i) => {
+    if (only >= 0 && i !== only) return;
+    const r = approachPoints(a, i);
+    const dx = p.pos[0] - r.TD[0], dz = p.pos[2] - r.TD[1], along = dx * r.ux + dz * r.uz, across = dx * r.uz - dz * r.ux;
+    if (along > -150 || along < -7000 || Math.abs(across) > 1500 || Math.abs(wrapPi(p.yaw - r.end.hdg)) > 0.7) return;
+    const score = Math.abs(across) + 0.1 * -along;
+    if (!q || score < q.score) q = { ...r, a, i, along, across, score };
+  });
+  return q;
+}
+function trackApproach(dt) {
+  const p = plane;
+  if (p.onGround || p.crashed || p.model.heli) return;
+  landTrack.t += dt;
+  if (landTrack.t < 0.5) return;
+  landTrack.t = 0;
+  const q = findFinal(p);
+  if (!q) { landTrack.lost += 0.5; if (landTrack.lost > 25) landTrack.pts.length = 0; return; }
+  landTrack.lost = 0;
+  if (landTrack.pts.length && landTrack.pts[0].i !== q.i) landTrack.pts.length = 0;
+  landTrack.pts.push({ i: q.i, along: q.along, across: q.across, h: p.pos[1] - q.gy });
+  if (landTrack.pts.length > 400) landTrack.pts.shift();
+}
+// the airport whose runway you are on: the nearest one, since airports can crowd each other
+function nearestFieldIndex(p) {
+  let best = -1, bd = 1e9;
+  AIRPORTS.forEach((a, i) => { const d = Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z); if (d < a.len / 2 + 300 && d < bd) { bd = d; best = i; } });
+  return best;
+}
+function makeLandingReport(impact, fieldIndex) {
+  const p = plane, pts = landTrack.pts.filter(t => t.i === fieldIndex && t.along > -4500 && t.along < -250);
+  landTrack.pts.length = 0;
+  if (pts.length < 4 || fieldIndex < 0) return;
+  const r = approachPoints(AIRPORTS[fieldIndex], fieldIndex);
+  const glide = pts.reduce((a, t) => a + Math.abs(Math.atan2(t.h, -t.along) * RAD2DEG - 3), 0) / pts.length;
+  const lat = pts.reduce((a, t) => a + Math.abs(t.across), 0) / pts.length;
+  const td = (p.pos[0] - r.TD[0]) * r.ux + (p.pos[2] - r.TD[1]) * r.uz;
+  const vref = stallSpeed(p) * 1.3, fast = Math.max(0, p.speed - vref * 1.25);
+  const score = Math.round(clamp(100 - 9 * glide - 0.12 * lat - 0.04 * Math.abs(td + 100) - 7 * impact - 1.2 * fast, 0, 100));
+  const grade = score >= 90 ? 'A+' : score >= 80 ? 'A' : score >= 65 ? 'B' : score >= 50 ? 'C' : 'D';
+  landReport = { t0: performance.now(), score, grade, glide, lat, td, impact, speed: p.speed * 1.944, pts: pts.map(t => [t.along, t.h]) };
+  save.bestApproach = Math.max(save.bestApproach || 0, score);
+  save.approachScoreSum = (save.approachScoreSum || 0) + score;
+  save.approachCount = (save.approachCount || 0) + 1;
+  writeSave();
+}
+function drawLandingReport() {
+  const R = landReport;
+  if (!R || !pilot) return;
+  const age = (performance.now() - R.t0) / 1000;
+  if (age > 14) { landReport = null; return; }
+  const w = Math.min(430, W - 20), h = 150, x = W / 2 - w / 2, y = Math.max(70, H * 0.12);
+  ctx.globalAlpha = age > 12 ? (14 - age) / 2 : 1;
+  ctx.fillStyle = 'rgba(8,24,44,0.82)'; ctx.fillRect(x, y, w, h);
+  ctx.textAlign = 'left'; ctx.font = 'bold 15px ui-monospace, Menlo, Consolas, monospace'; ctx.fillStyle = R.score >= 80 ? '#6dff9a' : R.score >= 50 ? '#ffd23f' : '#ff8a6b';
+  ctx.fillText(`LANDING REPORT  ${R.grade}  ${R.score}/100`, x + 12, y + 20);
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'; ctx.fillStyle = '#cfe8f5';
+  const lines = [`Glide slope error ${R.glide.toFixed(1)} deg`, `Centre line error ${Math.round(R.lat)} m`, `Touched down ${Math.round(R.td + 100)} m ${R.td + 100 < 0 ? 'short of' : 'past'} the aim`, `Sink rate ${R.impact.toFixed(1)} m/s`, `Speed ${Math.round(R.speed)} kt`];
+  lines.forEach((l, k) => ctx.fillText(l, x + 12, y + 44 + k * 18));
+  // side view of the approach: your path in blue, the 3 degree glide slope dotted
+  const px = x + w - 190, py = y + 34, pw = 176, ph = 100;
+  ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fillRect(px, py, pw, ph);
+  const maxH = Math.max(120, ...R.pts.map(q => q[1])), X = a => px + (a + 4600) / 4700 * pw, Y = hh => py + ph - clamp(hh / maxH, 0, 1) * ph;
+  ctx.strokeStyle = '#ffd23f'; ctx.setLineDash([3, 4]); ctx.beginPath(); ctx.moveTo(X(-4500), Y(4500 * 0.0524)); ctx.lineTo(X(0), Y(0)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = '#5ec8ff'; ctx.lineWidth = 2; ctx.beginPath();
+  R.pts.forEach((q, k) => { k ? ctx.lineTo(X(q[0]), Y(q[1])) : ctx.moveTo(X(q[0]), Y(q[1])); });
+  ctx.stroke(); ctx.lineWidth = 1;
+  ctx.globalAlpha = 1;
+}
 function toggleILS() {
   const p = plane;
   if (p.model.heli) { flashNote('NO AUTOPILOT IN A HELICOPTER'); return; }
@@ -3510,6 +3620,7 @@ function toggleILS() {
     const score = Math.abs(across) + 0.1 * -along;
     if (!q || score < q.score) q = { ...r, score };
   });
+  if (lesson && lesson.target) q = { ...lesson.target };   // landing practice: the runway of the exercise
   if (!q) { flashNote('NO RUNWAY AHEAD: POINT AT AN AIRPORT, WITHIN 9 KM'); return; }
   if (!p.gear) { flashNote('GEAR DOWN FIRST (G)'); return; }
   p.ap = { yaw: q.end.hdg, alt: p.pos[1], ils: { hdg: q.end.hdg, ux: q.ux, uz: q.uz, TD: q.TD, gy: q.gy } };
@@ -4071,6 +4182,7 @@ function update(dt) {
   }
 
   emergencyStep(dt);
+  trackApproach(dt);
   // take-off roll: call the rotation speed once
   if (p.onGround && p.throttle > 0.6 && !p.model.heli) {
     if (!p.rotateSaid && p.speed >= stallSpeed(p) * 1.15) { p.rotateSaid = true; flashNote('ROTATE'); playTones([[880, 0, 0.12]]); }
@@ -6993,6 +7105,7 @@ function frame(now) {
   drawHUD(now);
   drawStatus();
   drawChecklist();
+  drawLandingReport();
   drawFire();
   drawCruise();
   drawRain(now);
