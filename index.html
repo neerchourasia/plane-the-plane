@@ -1653,7 +1653,9 @@ function updateTower() {
   const windTxt = `WIND ${String(Math.round(((end.from * RAD2DEG) % 360 + 360) % 360)).padStart(3, '0')} AT ${Math.round(Math.hypot(end.wind[0], end.wind[1]) * 1.944)} KT, CROSSWIND ${Math.round(end.xwind)}`;
   if (!tower || tower.i !== best) {
     tower = { i: best, code: a.code, cleared: false };
-    radio(`${a.code} TOWER: ${windTxt}. USE RUNWAY ${end.num}`);
+    const fg = fogAtPlace(a.x, a.z), rn = rainAtPlace(a.x, a.z);
+    const wx = fg > 0.5 ? `FOG, VISIBILITY ${Math.max(1, Math.round((FOG_END - fg * 2800) / 1000))} KM` : rn > 0.7 ? 'THUNDERSTORMS IN THE AREA' : rn > 0.4 ? 'RAIN' : rn > 0.1 ? 'OVERCAST' : 'CLEAR';
+    radio(`${a.code} TOWER: ${windTxt}. ${wx}. USE RUNWAY ${end.num}`);
   }
   const T = (a.traffic || []).find(q => q.plane && ['lineup', 'turn', 'roll', 'rollout', 'approach'].includes(q.phase)), busy = !!T;
   // on the ground at the airport with the throttle up: take-off clearance, or hold while another plane is on the runway
@@ -4079,7 +4081,12 @@ function blockedByAirportBuildings(a, eye, pt) {
 
 // ---------- rendering helpers
 // fog thickens and clears slowly; it closes the view to as little as 800 m
-const fogLevel = () => clamp(Math.sin(windT / 260 + 2) * 1.5 - 0.6, 0, 1);
+// weather differs from place to place: the same weather cycle runs everywhere, but each part of the map is at a different point in it
+const wxPhase = (x, z, k) => valueNoise(x / 5500 + 11 + k * 7, z / 5500 - 3 + k * 5) * 6;
+const here = () => (typeof plane !== 'undefined' && plane ? plane.pos : [0, 0, 0]);
+const fogAtPlace = (x, z) => clamp(Math.sin(windT / 260 + 2 + wxPhase(x, z, 0)) * 1.5 - 0.6, 0, 1);
+const rainAtPlace = (x, z) => clamp(Math.sin(windT / 150 + wxPhase(x, z, 1)) * 1.4 - 0.4, 0, 1);
+const fogLevel = () => fogAtPlace(here()[0], here()[2]);
 let fogEnd = FOG_END;
 const fogAt = d => clamp((d - FOG_START) / (fogEnd - FOG_START), 0, 1);
 const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
@@ -5181,7 +5188,7 @@ function playTones(notes) {
 }
 
 // Rain comes and goes slowly: 0 is clear, 1 is heavy rain.
-function rainLevel() { return clamp(Math.sin(windT / 150) * 1.4 - 0.4, 0, 1); }
+function rainLevel() { return rainAtPlace(here()[0], here()[2]); }
 // rain: thin streaks falling across the screen while it rains
 const drops = Array.from({ length: 220 }, (_, i) => ({ x: hash2(i, 91), y: hash2(i, 92), v: 0.6 + hash2(i, 93) * 0.6 }));
 function drawRain(now) {
