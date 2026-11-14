@@ -1948,8 +1948,9 @@ function drawPilots() {
     const pos = [o.x + fx * o.v * dt, o.y, o.z + fz * o.v * dt];
     const s = wildProject(pos);
     if (!s || s[2] > 8000) continue;
-    const nose = wildProject([pos[0] + fx * 10, pos[1], pos[2] + fz * 10]), tail = wildProject([pos[0] - fx * 10, pos[1], pos[2] - fz * 10]);
-    const wl = wildProject([pos[0] - fz * 9, pos[1], pos[2] + fx * 9]), wr = wildProject([pos[0] + fz * 9, pos[1], pos[2] - fx * 9]);
+    const real = o._drawn && now - o._drawn < 200;   // drawn as a real plane: only the name tag is needed
+    const nose = real ? null : wildProject([pos[0] + fx * 10, pos[1], pos[2] + fz * 10]), tail = wildProject([pos[0] - fx * 10, pos[1], pos[2] - fz * 10]);
+    const wl = real ? null : wildProject([pos[0] - fz * 9, pos[1], pos[2] + fx * 9]), wr = real ? null : wildProject([pos[0] + fz * 9, pos[1], pos[2] - fx * 9]);
     ctx.strokeStyle = 'rgba(120,230,255,0.95)';
     ctx.lineWidth = clamp(F * 2.5 / s[2], 1.5, 5);
     if (nose && tail) { ctx.beginPath(); ctx.moveTo(tail[0], tail[1]); ctx.lineTo(nose[0], nose[1]); ctx.stroke(); }
@@ -4527,6 +4528,17 @@ function render() {
         pushModelTris(st);
         drawn++;
       }
+    }
+    // other pilots who are online: their real planes, where they were last reported and carried forward at their speed
+    for (const o of others) {
+      const m = MODELS.find(q => q.name === o.plane);
+      if (!m) continue;
+      const dt = Math.min(15, (performance.now() - o.t0) / 1000), fx = Math.sin(o.yaw), fz = Math.cos(o.yaw);
+      const q = { m, paint: null, x: o.x + fx * o.v * dt, y: o.y, z: o.z + fz * o.v * dt, yaw: o.yaw, pitch: 0, up: o.y - terrainAt(o.x, o.z) > 25 };
+      const d = Math.hypot(q.x - eye[0], q.z - eye[2]);
+      if (d > 3200 || blockedFrom(eye, [q.x, q.y, q.z])) continue;
+      pushModelTris(q);
+      o._drawn = performance.now();
     }
     for (const st of skyList) {
       if (drawn >= 14) break;
