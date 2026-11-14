@@ -1672,7 +1672,7 @@ function updateTower() {
     tower = { i: best, code: a.code, cleared: false };
     const fg = fogAtPlace(a.x, a.z), rn = rainAtPlace(a.x, a.z);
     const wx = fg > 0.5 ? `FOG, VISIBILITY ${Math.max(1, Math.round((FOG_END - fg * 2800) / 1000))} KM` : rn > 0.7 ? 'THUNDERSTORMS IN THE AREA' : rn > 0.4 ? 'RAIN' : rn > 0.1 ? 'OVERCAST' : 'CLEAR';
-    radio(`${a.code} TOWER: ${windTxt}. ${wx}. USE RUNWAY ${end.num}`);
+    radio(`${a.code} TOWER: LOCAL TIME ${fmtHour(hourAt(a.x))}. ${windTxt}. ${wx}. USE RUNWAY ${end.num}`);
   }
   const T = (a.traffic || []).find(q => q.plane && ['lineup', 'turn', 'roll', 'rollout', 'approach'].includes(q.phase)), busy = !!T;
   // on the ground at the airport with the throttle up: take-off clearance, or hold while another plane is on the runway
@@ -3721,6 +3721,13 @@ let wind = [0, 0];
 
 // Local time of day from the device clock, so the sun and night match real life.
 const realHour = () => { const d = new Date(); return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600; };
+// time zones: each 1.8 km east or west of the start is one hour later or earlier, so a long flight carries you into dusk, night or morning
+const zoneAt = x => clamp(Math.round(x / 1800), -5, 5);
+let tzSmooth = 0;
+const hourAt = x => (realHour() + zoneAt(x) + 24) % 24;
+const fmtHour = h => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.floor((h % 1) * 60)).padStart(2, '0');
+// seasons follow the real date: in winter the cold parts of the map are snowed in
+const isWinter = () => { const m = new Date().getMonth(); return m === 11 || m <= 1; };
 let simHour = realHour();
 // 0.35 at night (moonlit, so the ground stays readable) up to 1 at midday, so the sky and ground darken smoothly.
 function daylight() {
@@ -3794,7 +3801,8 @@ function update(dt) {
   windT += dt;
   fogEnd = Math.min(FOG_END - fogLevel() * 2800, lowGfx() ? 2600 : 1e9);
   wind = windAt(p.pos);
-  simHour = realHour();
+  tzSmooth += (zoneAt(plane.pos[0]) - tzSmooth) * Math.min(1, dt * 0.4);
+  simHour = (realHour() + tzSmooth + 24) % 24;
   if (m.heli) return updateHeli(dt);
 
   const auth = Math.min(1, 0.3 + p.speed / 45);   // controls get stronger with airspeed
@@ -5495,7 +5503,8 @@ const drops = Array.from({ length: 220 }, (_, i) => ({ x: hash2(i, 91), y: hash2
 function drawRain(now) {
   const amount = rainLevel();
   // snow settles on the ground gradually, and melts when it stops
-  snowSmooth += ((snowingNow() ? clamp((amount - 0.15) * 2.2, 0, 1) : 0) - snowSmooth) * 0.004;
+  const winterSnow = isWinter() && coldAtPlace(here()[0], here()[2]) ? 0.75 : 0;
+  snowSmooth += (Math.max(winterSnow, snowingNow() ? clamp((amount - 0.15) * 2.2, 0, 1) : 0) - snowSmooth) * 0.004;
   if (amount < 0.05) return;
   if (snowingNow()) {
     // snow: big slow flakes drifting sideways
