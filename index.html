@@ -2694,8 +2694,20 @@ function drawGhost() {
   ctx.fillText('BEST ' + g.km + ' km', s[0] + r + 6, s[1] + 4);
 }
 // airport names, floating above each field
+function drawStripLabels() {
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(190,255,220,0.95)';
+  for (const t of allStrips()) {
+    const dx = t.x - lastCam.eye[0], dz = t.z - lastCam.eye[2];
+    if (dx * dx + dz * dz > fogEnd * fogEnd) continue;
+    const top = [t.x, terrainAt(t.x, t.z) + 18, t.z], s = wildProject(top);
+    if (!s || blockedFrom(lastCam.eye, top)) continue;
+    ctx.fillText(`${t.name}${t.own ? ' (yours)' : t.owner ? ' by ' + t.owner : ''} AIRSTRIP`, s[0], s[1]);
+  }
+  ctx.textAlign = 'start';
+}
 function drawAirportLabels() {
   if (!lastCam || !pilot) return;
+  drawStripLabels();
   ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(232,255,245,0.95)';
@@ -2794,7 +2806,7 @@ function drawRunwayLights() {
   if (!lastCam || !pilot || daylight() >= 0.45) return;
   const { eye } = lastCam;
   ctx.fillStyle = 'rgba(255,250,220,0.95)';
-  for (const ap of AIRPORTS) {
+  for (const ap of AIRPORTS.concat(allStrips())) {
     if (len(sub([ap.x, 0, ap.z], eye)) > 4000) continue;
     const ux = Math.sin(ap.hdgRad), uz = Math.cos(ap.hdgRad), hl = ap.len / 2;
     for (let a = -hl; a <= hl; a += 60) {
@@ -5062,7 +5074,7 @@ function render() {
   for (let z = RUNWAY.z0; z < RUNWAY.z1; z += 150) runwayPiece(z, Math.min(z + 150, RUNWAY.z1));
 
   // real airports: runways with a dashed centre line, drawn when they are near
-  for (const ap of AIRPORTS) {
+  for (const ap of AIRPORTS.concat(allStrips())) {
     if (len(sub([ap.x, 0, ap.z], eye)) > FOG_END + ap.len / 2) continue;
     const ux = Math.sin(ap.hdgRad), uz = Math.cos(ap.hdgRad);
     const y0 = terrainAt(ap.x, ap.z) + 0.05, hl = ap.len / 2;
@@ -7112,6 +7124,12 @@ function renderSettings() {
   row('Spoken tower calls', settings.towerVoice ? 'On' : 'Off', () => { settings.towerVoice = !settings.towerVoice; saveSettings(); });
   row('Colour-blind palette (blue and orange)', settings.colourBlind ? 'On' : 'Off', () => { settings.colourBlind = !settings.colourBlind; saveSettings(); });
   row('Spoken height callouts on landing', settings.callouts ? 'On' : 'Off', () => { settings.callouts = !settings.callouts; saveSettings(); });
+  { const r = document.createElement('div'); r.className = 'row';
+    const inp = document.createElement('input'); inp.placeholder = 'Airstrip name'; inp.maxLength = 14; inp.style.cssText = 'flex:1;background:#0b1424;color:#e8fff5;border:1px solid #2a3d5c;border-radius:6px;padding:6px';
+    const b = document.createElement('button'); b.textContent = 'Build here: 2000 coins';
+    b.onclick = () => { const err = buildAirstrip(inp.value); flashNote(err ? 'AIRSTRIP: ' + err.toUpperCase() : 'AIRSTRIP BUILT: ' + (inp.value || 'MY STRIP').toUpperCase()); toggleSettings(); };
+    r.append(inp, b); box.append(r);
+    const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Stop on flat ground in the direction you want the runway to run (' + STRIP_LEN + ' m). Your airstrips: ' + ((save && save.strips) || []).filter(t => t.region === REGION_ID).map(t => t.name).join(', ') + '. Other pilots see them too.'; box.append(hint); }
   row('Pre-flight checklist', checklistOn ? 'On' : 'Off', () => { checklistOn = !checklistOn; settings.checklist = checklistOn; saveSettings(); });
   row('Key help on the screen', settings.help ? 'On' : 'Off', () => { settings.help = !settings.help; saveSettings(); applyHelp(); });
 }
@@ -7167,6 +7185,40 @@ for (const id of ['acctOld', 'acctNew', 'acctDel']) {
   el.addEventListener('keydown', e => e.stopPropagation());   // typing a password must not fly the plane
   el.addEventListener('keyup', e => e.stopPropagation());
 }
+// ---------- your own airstrips: build one where you are standing (flat ground, 2000 coins); it is saved to your account and other pilots see it too
+let otherStrips = [];
+const STRIP_LEN = 650;
+function ownStrips() { return ((save && save.strips) || []).filter(t => t.region === REGION_ID).map(t => ({ ...t, hdgRad: t.hdg, own: true, code: 'MY' })); }
+function allStrips() {
+  const own = ownStrips();
+  return own.concat(otherStrips.filter(t => t.region === REGION_ID && !own.some(q => q.x === t.x && q.z === t.z)).map(t => ({ ...t, hdgRad: t.hdg, code: 'MY' })));
+}
+async function refreshStrips() {
+  try { const b = await api('/api/board?day=' + today() + '&week=' + weekNumber()); otherStrips = (b.strips || []).filter(t => !t.mine); } catch (e) { /* offline: keep what we have */ }
+}
+function buildAirstrip(name) {
+  const p = plane;
+  if (!pilot || p.crashed) return 'Fly first.';
+  if (!p.onGround || p.speed > 2) return 'Stop the plane on the ground first.';
+  if ((save.strips || []).length >= 3) return 'You can have 3 airstrips.';
+  if (save.coins < 2000) return 'An airstrip costs 2000 coins.';
+  const ux = Math.sin(p.yaw), uz = Math.cos(p.yaw);
+  let lo = 1e9, hi = -1e9;
+  for (let t = -STRIP_LEN / 2; t <= STRIP_LEN / 2; t += 50) for (const side of [-30, 0, 30]) {
+    const h = terrainAt(p.pos[0] + ux * t + uz * side, p.pos[2] + uz * t - ux * side);
+    lo = Math.min(lo, h); hi = Math.max(hi, h);
+  }
+  if (lo < WATER + 2) return 'There is water on the strip.';
+  if (hi - lo > 4) return 'The ground is too uneven here (needs under 4 m of slope).';
+  // the whole strip must stay clear of every airport runway (the map is crowded, so only a modest margin is asked)
+  for (let t = -STRIP_LEN / 2; t <= STRIP_LEN / 2; t += 80) if (onAirfield(p.pos[0] + ux * t, p.pos[2] + uz * t, 130)) return 'Too close to an airport: try another spot.';
+  const clean = String(name || '').replace(/[^A-Za-z0-9 ]/g, '').trim().slice(0, 14) || 'My strip';
+  save.strips = save.strips || [];
+  save.strips.push({ name: clean, x: Math.round(p.pos[0]), z: Math.round(p.pos[2]), hdg: +p.yaw.toFixed(3), len: STRIP_LEN, region: REGION_ID, day: dayNum() });
+  save.coins -= 2000; writeSave();
+  setTimeout(refreshStrips, 1500);
+  return null;
+}
 function signIn(name, saved) {
   pilot = name;
   save = { ...JSON.parse(JSON.stringify(DEFAULT_SAVE)), ...(saved || {}) };
@@ -7177,6 +7229,7 @@ function signIn(name, saved) {
   refreshPads();
   renderHangar();
   showHome();
+  refreshStrips();
 }
 // ---------- home screen: after signing in, pick Fly, the hangar, the livery maker and more
 let homeOpen = false;

@@ -8,6 +8,7 @@ export default async function handler(req, res) {
   const r = await db();
   const names = await r.sMembers('pilots');
   const rows = [];
+  const strips = [];   // airstrips built by pilots, seen by everybody
   const races = {};   // best times per race, for the air races
   for (const name of names) {
     const save = JSON.parse((await r.get('save:' + name)) || '{}');
@@ -16,6 +17,11 @@ export default async function handler(req, res) {
         if (/^r[0-9]{1,2}$/.test(id) && Number.isFinite(time) && time > 0) {
           (races[id] = races[id] || []).push({ name, callsign: String(save.callsign || '').slice(0, 12), time });
         }
+      }
+    }
+    if (Array.isArray(save.strips)) {
+      for (const t of save.strips.slice(0, 3)) {
+        if (strips.length < 90 && Number.isFinite(t.x) && Number.isFinite(t.z) && Number.isFinite(t.hdg) && typeof t.region === 'string') strips.push({ owner: String(save.callsign || name).slice(0, 12), name: String(t.name || '').slice(0, 14), x: t.x, z: t.z, hdg: t.hdg, len: 650, region: t.region.slice(0, 12) });
       }
     }
     const best = save.records && save.records[0] ? parseFloat(save.records[0].km) || 0 : 0;
@@ -32,5 +38,5 @@ export default async function handler(req, res) {
   }
   const top = key => rows.filter(x => x[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, 10);
   for (const id of Object.keys(races)) races[id] = races[id].sort((a, b) => a.time - b.time).slice(0, 5);
-  res.json({ weekly: top('score'), best: top('best'), flips: top('flips'), landing: top('landing'), butters: top('butters'), daily: top('daily'), races });
+  res.json({ strips, weekly: top('score'), best: top('best'), flips: top('flips'), landing: top('landing'), butters: top('butters'), daily: top('daily'), races });
 }
