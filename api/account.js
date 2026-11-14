@@ -1,4 +1,4 @@
-import { db, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ADMIN_NAME } from '../lib/accounts.js';
+import { db, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ipOf, ADMIN_NAME } from '../lib/accounts.js';
 
 // Account actions for the signed-in pilot: sign out on the server, change the password, delete the account.
 export default async function handler(req, res) {
@@ -19,12 +19,12 @@ export default async function handler(req, res) {
   // the other actions ask for the current password
   if (b.action === 'password' || b.action === 'delete') {
     const current = typeof b.password === 'string' ? b.password : (typeof b.oldPassword === 'string' ? b.oldPassword : '');
-    if (await blocked(name)) return res.status(429).json({ error: 'Too many wrong passwords. Try again in 15 minutes.' });
+    if (await blocked(name, ipOf(req))) return res.status(429).json({ error: 'Too many wrong passwords. Try again in 15 minutes.' });
     if (!samePassword(current, pilot.salt, pilot.hash)) {
-      await noteFail(name);
+      await noteFail(name, ipOf(req));
       return res.status(401).json({ error: 'Wrong password.' });
     }
-    await clearFails(name);
+    await clearFails(name, ipOf(req));
 
     if (b.action === 'password') {
       const next = b.newPassword;

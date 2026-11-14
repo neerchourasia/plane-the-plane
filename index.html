@@ -909,13 +909,13 @@ function drawRings() {
 
 // ---------- daily missions: three missions picked for each UTC day, the same for every pilot
 const DAILY_POOL = [
-  { id: 'd-land2', text: 'Land 2 times', pay: 120, done: (p, d) => d.landings >= 2 },
-  { id: 'd-flip', text: 'Finish a back flip', pay: 120, done: (p, d) => d.flips >= 1 },
-  { id: 'd-rings2', text: 'Fly through 2 rings', pay: 120, done: (p, d) => d.rings >= 2 },
-  { id: 'd-barrel', text: 'Do a barrel roll', pay: 120, done: (p, d) => d.barrels >= 1 },
-  { id: 'd-2km', text: 'Fly 2 km in one flight', pay: 120, done: p => p.flight.dist >= 2000 },
-  { id: 'd-800', text: 'Reach 800 m', pay: 120, done: p => p.pos[1] >= 800 },
-  { id: 'd-60', text: 'Reach 60 m/s', pay: 120, done: p => p.speed >= 60 }
+  { id: 'd-land2', text: 'Land 2 times', hint: 'Land on any runway. The gold arrow points to the nearest airport.', pay: 120, done: (p, d) => d.landings >= 2 },
+  { id: 'd-flip', text: 'Finish a back flip', hint: 'In the air above 45 m/s, press V for a back flip.', pay: 120, done: (p, d) => d.flips >= 1 },
+  { id: 'd-rings2', text: 'Fly through 2 rings', hint: 'Follow the gold arrow to the nearest gold ring.', pay: 120, done: (p, d) => d.rings >= 2 },
+  { id: 'd-barrel', text: 'Do a barrel roll', hint: 'In the air above 40 m/s, press X for a barrel roll.', pay: 120, done: (p, d) => d.barrels >= 1 },
+  { id: 'd-2km', text: 'Fly 2 km in one flight', hint: 'Fly 2 km without landing. The gold arrow points to a far airport.', pay: 120, done: p => p.flight.dist >= 2000 },
+  { id: 'd-800', text: 'Reach 800 m', hint: 'Take off, keep full throttle and pull back (S) to climb.', pay: 120, done: p => p.pos[1] >= 800 },
+  { id: 'd-60', text: 'Reach 60 m/s', hint: 'Full throttle and a gentle dive.', pay: 120, done: p => p.speed >= 60 }
 ];
 const today = () => new Date().toISOString().slice(0, 10);
 function dailyPicks(day) {
@@ -965,6 +965,7 @@ function renderDaily() {
     label.textContent = `${d.done.includes(m.id) ? 'DONE' : 'TODO'}  ${m.text} - ${m.pay} coins`;
     row.append(label);
     box.append(row);
+    if (!d.done.includes(m.id) && m.hint) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = m.hint; h.style.margin = '0 0 6px 0'; box.append(h); }
   }
 }
 
@@ -1752,6 +1753,76 @@ function renderAirline() {
   }
 }
 
+// ---------- guide arrow: a gold arrow and a marker point at where to go next
+// Priority: the race gate, the landing lesson's runway, the active job, the nearest ring for a ring mission,
+// then the nearest airport for a landing mission, or a far airport for a distance mission.
+const bearingText = (dx, dz) => COMPASS[Math.round((((Math.atan2(dx, dz) * RAD2DEG) % 360 + 360) % 360) / 45) % 8];
+function nearestAirport(pos) {
+  let best = null, bd = 1e9;
+  for (const a of AIRPORTS) { const d = Math.hypot(pos[0] - a.x, pos[2] - a.z); if (d < bd) { bd = d; best = a; } }
+  return best;
+}
+function guideTarget() {
+  const p = plane, missionOpen = id => !(save.missions || []).includes(id);
+  const d = save.daily && save.daily.date === today() ? save.daily : null;
+  const dailyOpen = id => !!d && dailyPicks(d.date).some(m => m.id === id) && !d.done.includes(id);
+  if (race && race.count <= 0) { const g = race.def.pts[race.gate]; return { pos: g.c, label: `GATE ${race.gate + 1}` }; }
+  if (lesson && lesson.i === 2 && lesson.step >= 1) return { pos: [0, 0, -200], label: 'RUNWAY' };
+  const c = save.contract;
+  if (c && !cruise) {
+    let label;
+    if (c.km) label = 'LAND AT ' + c.to;
+    else if (c.kind) label = (c.stage === 0 ? 'PICK UP ' : 'DROP OFF ') + (c.stage === 0 ? c.name.split(' to ')[0] : c.name.split(' to ')[1] || '');
+    else label = 'LAND AT ' + c.name;
+    return { pos: [c.x, terrainAt(c.x, c.z) + 30, c.z], label };
+  }
+  if (missionOpen('rings5') || missionOpen('rings12') || dailyOpen('d-rings2')) {
+    let best = null, bd = 1e9;
+    for (const r of RINGS) { if (r.got) continue; const dd = len(sub(r.c, p.pos)); if (dd < bd) { bd = dd; best = r; } }
+    if (best) return { pos: best.c, label: 'RING' };
+  }
+  if (missionOpen('land3') || dailyOpen('d-land2') || missionOpen('contracts3')) {
+    const a = nearestAirport(p.pos);
+    return { pos: [a.x, terrainAt(a.x, a.z) + 30, a.z], label: 'LAND: ' + a.code };
+  }
+  if (missionOpen('far') || dailyOpen('d-2km')) {
+    let best = null, bd = -1;
+    for (const a of AIRPORTS) { const dd = Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z); if (dd > bd) { bd = dd; best = a; } }
+    return { pos: [best.x, terrainAt(best.x, best.z) + 30, best.z], label: 'FAR: ' + best.code };
+  }
+  return null;
+}
+function drawGuide() {
+  if (!lastCam || !pilot || plane.crashed || homeOpen) return;
+  const t = guideTarget();
+  if (!t) return;
+  const p = plane, dx = t.pos[0] - p.pos[0], dz = t.pos[2] - p.pos[2], dist = Math.hypot(dx, dz);
+  const rel = wrapPi(Math.atan2(dx, dz) - p.yaw);
+  const brg = Math.round(((Math.atan2(dx, dz) * RAD2DEG) % 360 + 360) % 360);
+  // the arrow: points up when the target is straight ahead, turns left or right otherwise
+  const cx = W - 78, cy = 200;
+  ctx.fillStyle = 'rgba(30,22,4,0.7)';
+  ctx.beginPath(); ctx.arc(cx, cy, 38, 0, 6.3); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,210,63,0.6)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.save();
+  ctx.translate(cx, cy); ctx.rotate(rel);
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.moveTo(0, -28); ctx.lineTo(14, 12); ctx.lineTo(0, 5); ctx.lineTo(-14, 12); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = '#ffd23f'; ctx.font = 'bold 12px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+  ctx.fillText(t.label, cx, cy + 54);
+  ctx.fillStyle = '#e8d9a0'; ctx.font = '12px ui-monospace, Menlo, monospace';
+  ctx.fillText(`${String(brg).padStart(3, '0')}° ${bearingText(dx, dz)}  ${(dist / 1000).toFixed(1)} KM`, cx, cy + 69);
+  // a marker over the target when it is on screen
+  const s = wildProject(t.pos);
+  if (s && s[0] > 0 && s[0] < W && s[1] > 0 && s[1] < H) {
+    ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(s[0], s[1] - 14); ctx.lineTo(s[0] + 10, s[1]); ctx.lineTo(s[0], s[1] + 14); ctx.lineTo(s[0] - 10, s[1]); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = '#ffd23f'; ctx.fillText(t.label, s[0], s[1] - 20);
+  }
+  ctx.textAlign = 'start';
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -2197,17 +2268,17 @@ function awardLanding(impact) {
 
 // Missions: one-off goals that pay coins once each. Progress is kept in the save.
 const MISSIONS = [
-  { id: 'climb', text: 'Reach 1000 m', pay: 150, done: p => p.pos[1] >= 1000 },
-  { id: 'far', text: 'Fly 5 km in one flight', pay: 200, done: p => p.flight.dist >= 5000 },
-  { id: 'land3', text: 'Land 3 times', pay: 150, done: () => (save.landings || 0) >= 3 },
-  { id: 'flips3', text: 'Finish 3 back flips', pay: 300, done: () => (save.flips || 0) >= 3 },
-  { id: 'rings5', text: 'Fly through 5 rings', pay: 250, done: () => (save.ringsFlown || 0) >= 5 },
-  { id: 'alt3k', text: 'Climb to 3000 m', pay: 200, done: p => p.pos[1] >= 3000 },
-  { id: 'speed70', text: 'Reach 70 m/s', pay: 200, done: p => p.speed >= 70 },
-  { id: 'air10', text: 'Stay up 10 minutes in one flight', pay: 250, done: p => p.flight.secs >= 600 },
-  { id: 'barrel3', text: 'Do 3 barrel rolls', pay: 200, done: () => (save.barrels || 0) >= 3 },
-  { id: 'contracts3', text: 'Finish 3 contracts', pay: 300, done: () => (save.completed || 0) >= 3 },
-  { id: 'rings12', text: 'Fly through all 12 rings', pay: 300, done: () => (save.ringsFlown || 0) >= 12 }
+  { id: 'climb', text: 'Reach 1000 m', hint: 'Take off, keep full throttle and pull back (S) to climb.', pay: 150, done: p => p.pos[1] >= 1000 },
+  { id: 'far', text: 'Fly 5 km in one flight', hint: 'Pick a direction and keep flying; the gold arrow points to a far airport.', pay: 200, done: p => p.flight.dist >= 5000 },
+  { id: 'land3', text: 'Land 3 times', hint: 'Land on any runway. The gold arrow points to the nearest airport.', pay: 150, done: () => (save.landings || 0) >= 3 },
+  { id: 'flips3', text: 'Finish 3 back flips', hint: 'In the air above 45 m/s, press V for a back flip.', pay: 300, done: () => (save.flips || 0) >= 3 },
+  { id: 'rings5', text: 'Fly through 5 rings', hint: 'Follow the gold arrow to the nearest gold ring and fly through it.', pay: 250, done: () => (save.ringsFlown || 0) >= 5 },
+  { id: 'alt3k', text: 'Climb to 3000 m', hint: 'Keep climbing at full throttle. Ice can build up above 2500 m.', pay: 200, done: p => p.pos[1] >= 3000 },
+  { id: 'speed70', text: 'Reach 70 m/s', hint: 'Full throttle and a gentle dive. The Trainer tops out near 75 m/s.', pay: 200, done: p => p.speed >= 70 },
+  { id: 'air10', text: 'Stay up 10 minutes in one flight', hint: 'Stay in the air for 10 minutes without landing. The autopilot (P) helps.', pay: 250, done: p => p.flight.secs >= 600 },
+  { id: 'barrel3', text: 'Do 3 barrel rolls', hint: 'In the air above 40 m/s, press X for a barrel roll.', pay: 200, done: () => (save.barrels || 0) >= 3 },
+  { id: 'contracts3', text: 'Finish 3 contracts', hint: 'Accept a job in the hangar, then follow the gold arrow to the airport.', pay: 300, done: () => (save.completed || 0) >= 3 },
+  { id: 'rings12', text: 'Fly through all 12 rings', hint: 'Follow the gold arrow to each gold ring until all 12 are done.', pay: 300, done: () => (save.ringsFlown || 0) >= 12 }
 ];
 function checkMissions() {
   if (!pilot) return;
@@ -2292,6 +2363,7 @@ function renderExtras() {
     label.textContent = `${done ? 'DONE' : 'TODO'}  ${m.text} - ${m.pay} coins`;
     row.append(label);
     missions.append(row);
+    if (!done && m.hint) { const h = document.createElement('p'); h.className = 'hint'; h.textContent = m.hint; h.style.margin = '0 0 6px 0'; missions.append(h); }
   }
   const records = document.getElementById('records');
   records.innerHTML = '';
@@ -2359,7 +2431,7 @@ function renderHangar() {
       const row = document.createElement('div');
       row.className = 'row';
       const label = document.createElement('span');
-      label.textContent = `${o.kind ? o.kind.toUpperCase() + ': ' : ''}${o.name} - ${(o.dist / 1000).toFixed(1)} km - ${o.pay} coins, ${o.xp} XP`;
+      label.textContent = `${o.kind ? o.kind.toUpperCase() + ': ' : ''}${o.name} - ${(o.dist / 1000).toFixed(1)} km - ${o.pay} coins, ${o.xp} XP - ${o.km ? 'start anywhere' : 'pick-up ' + bearingText(o.x - plane.pos[0], o.z - plane.pos[2]) + ' of you, ' + (Math.hypot(o.x - plane.pos[0], o.z - plane.pos[2]) / 1000).toFixed(1) + ' km'}`;
       const btn = document.createElement('button');
       btn.textContent = 'Accept';
       btn.onclick = () => accept(o);
@@ -4476,6 +4548,8 @@ async function submitLogin(create) {
   } catch (e) {
     if (!create && e.status === 404 && readJSON(pilotKey(name.toLowerCase()), null)) {
       msg.textContent = 'This pilot is not on the server any more. Press Create pilot with the same name to bring your saved progress back.';
+    } else if (!create && e.status === 404) {
+      msg.textContent = 'No pilot with that name on the server. Check the spelling, or press Create pilot to make it (pilots from before accounts moved online need to be created again).';
     } else {
       msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again.";
     }
@@ -4550,6 +4624,7 @@ function frame(now) {
   drawGhost();
   drawRace();
   drawPilots();
+  drawGuide();
   drawChat();
   checkFormation(dt);
   drawCityLights();
