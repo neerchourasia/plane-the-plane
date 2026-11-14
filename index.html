@@ -151,7 +151,8 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
   <div class="card">
     <h2>World map</h2>
     <canvas id="worldCanvas"></canvas>
-    <p class="hint">Click an airport to fly there. Press U or Esc to close.</p>
+    <p class="hint">Click an airport to fly there. Green dots are airports you have landed at. Press U or Esc to close.</p>
+    <div id="logbook" style="font-size:12px;line-height:1.5;margin:8px 0"></div>
     <p class="hint" style="font-size:11px">Satellite image: NASA Visible Earth, Blue Marble (public domain).</p>
     <button id="worldClose">Close</button>
   </div>
@@ -3551,11 +3552,22 @@ let earthReady = false;
 EARTH.onload = () => { earthReady = true; if (worldOpen) drawWorld(); };
 EARTH.src = 'earth.jpg';
 let worldOpen = false;
+function renderLogbook() {
+  const box = document.getElementById('logbook');
+  if (!box) return;
+  const t = save.totals || { flights: 0, km: 0, secs: 0 }, seen = (save.visited || []).length;
+  const names = Object.fromEntries(REGION_LIST.map(r => [r.id, r.name]));
+  const lines = [`LOGBOOK  ${t.flights} flights, ${(t.secs / 3600).toFixed(1)} hours, ${Math.round(t.km).toLocaleString()} km`,
+    `Airports landed at: ${seen} of ${AIRPORTS.length}. Regions flown: ${(save.regionsFlown || []).map(r => names[r] || r).join(', ') || 'none yet'}.`];
+  for (const e of (save.log || []).slice(0, 6)) lines.push(`${e.date || ''} ${e.model}: ${e.km} km in ${e.min} min, ${e.result}`);
+  box.textContent = '';
+  for (const l of lines) { const d = document.createElement('div'); d.textContent = l; box.append(d); }
+}
 function toggleWorld() {
   worldOpen = !worldOpen;
   for (const k in keys) keys[k] = false;
   document.getElementById('world').style.display = worldOpen ? 'flex' : 'none';
-  if (worldOpen) drawWorld();
+  if (worldOpen) { drawWorld(); renderLogbook(); }
 }
 const worldProject = (lon, lat, w, h) => [(lon + 180) / 360 * w, (90 - lat) / 180 * h];
 function drawWorld() {
@@ -3601,7 +3613,9 @@ function drawWorld() {
   g.font = `${Math.max(10, Math.round(w / 70))}px ui-monospace, Menlo, monospace`;
   for (const a of AIRPORTS) {
     const [x, y] = worldProject(a.lon, a.lat, w, h);
-    g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(x, y, 4, 0, 6.3); g.fill();
+    const seen = (save.visited || []).includes(a.code);
+    g.fillStyle = seen ? '#5dff9a' : '#ffd34d'; g.beginPath(); g.arc(x, y, seen ? 4.5 : 3, 0, 6.3); g.fill();
+    if (!seen && AIRPORTS.length > 60) continue;   // with so many airports only the ones you have visited get a label
     g.fillStyle = '#e8fff5';
     if (x > w - 44) { g.textAlign = 'right'; g.fillText(a.code, x - 6, y - 4); g.textAlign = 'start'; }   // keep labels on the map near the right edge
     else g.fillText(a.code, x + 6, y - 4);
@@ -3689,7 +3703,13 @@ function logFlight(result) {
     save.ghost = { km: entry.km, path: plane.path };
   }
   plane.path = []; plane.pathT = 0;
-  save.log = [entry, ...save.log].slice(0, 10);
+  // the logbook: totals for the whole career and the regions you have flown in
+  save.totals = save.totals || { flights: 0, km: 0, secs: 0 };
+  save.totals.flights++; save.totals.km += f.dist / 1000; save.totals.secs += f.secs;
+  save.regionsFlown = save.regionsFlown || [];
+  if (!save.regionsFlown.includes(REGION_ID)) save.regionsFlown.push(REGION_ID);
+  entry.date = new Date().toISOString().slice(0, 10); entry.region = REGION_ID;
+  save.log = [entry, ...save.log].slice(0, 30);
   save.records = [...(save.records || []), entry].sort((a, b) => b.km - a.km).slice(0, 5);
   plane.flight = { dist: 0, secs: 0 };
   writeSave();
