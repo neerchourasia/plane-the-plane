@@ -2432,8 +2432,12 @@ function drawAirportLabels() {
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(232,255,245,0.95)';
   for (const [i, ap] of AIRPORTS.entries()) {
-    const s = wildProject([ap.x, terrainAt(ap.x, ap.z) + 25, ap.z]);
-    if (!s || s[2] > 6000) continue;
+    // only airports you can actually see: inside the haze distance, and not hidden behind a hill
+    const dx = ap.x - lastCam.eye[0], dz = ap.z - lastCam.eye[2];
+    if (dx * dx + dz * dz > fogEnd * fogEnd) continue;
+    const top = [ap.x, terrainAt(ap.x, ap.z) + 25, ap.z];
+    const s = wildProject(top);
+    if (!s || s[2] > fogEnd || blockedFrom(lastCam.eye, top)) continue;
     ctx.fillText(`${ap.code} ${ap.name}  RWY ${bestEnd(ap, i).num}`, s[0], s[1]);
   }
   ctx.textAlign = 'start';
@@ -4256,7 +4260,7 @@ function render() {
 
   // real airports: runways with a dashed centre line, drawn when they are near
   for (const ap of AIRPORTS) {
-    if (len(sub([ap.x, 0, ap.z], eye)) > 6000) continue;
+    if (len(sub([ap.x, 0, ap.z], eye)) > FOG_END + ap.len / 2) continue;
     const ux = Math.sin(ap.hdgRad), uz = Math.cos(ap.hdgRad);
     const y0 = terrainAt(ap.x, ap.z) + 0.05, hl = ap.len / 2;
     const pt = (a, b) => toCam([ap.x + ux * a + uz * b, y0, ap.z + uz * a - ux * b]);
