@@ -11,7 +11,8 @@
   #c,#tgl,#obj,#gl{filter:contrast(1.06) saturate(1.1)}
   #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 58%,rgba(0,0,0,0.26) 100%)}
   #soundBtn{position:fixed;top:30px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
-  #soundBtn:hover{background:rgba(0,0,0,.65)}
+  #soundBtn:hover,#gfxBtn:hover{background:rgba(0,0,0,.65)}
+  #gfxBtn{position:fixed;top:64px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
   #hangar .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;min-width:320px;max-height:92vh;overflow:auto}
@@ -225,6 +226,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
   </div>
 </div>
 <button id="soundBtn" title="Sound on or off (M)">SOUND ON</button>
+<button id="gfxBtn" title="Graphics: auto lowers the detail on a slow device">GFX AUTO</button>
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
@@ -310,8 +312,12 @@ let terrainGL = null;   // set once the world is built; stays null if WebGL cann
 const fxCanvas = document.getElementById('fx');
 const fxCtx = fxCanvas.getContext('2d');
 let W = 0, H = 0;
+// graphics quality: "auto" watches the frame rate and lowers the detail on a slow device; "low" and "high" are fixed
+let gfxMode = 'auto', gfxLow = false;
+try { gfxMode = localStorage.getItem('plane-the-plane-gfx') || 'auto'; } catch (e) { /* storage blocked */ }
+const lowGfx = () => gfxMode === 'low' || (gfxMode === 'auto' && gfxLow);
 function resize() {
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(window.devicePixelRatio || 1, lowGfx() ? 1 : 2) * (lowGfx() ? 0.75 : 1);
   W = innerWidth; H = innerHeight;
   for (const c of [canvas, glCanvas, fxCanvas, tglCanvas, objCanvas]) { c.width = W * dpr; c.height = H * dpr; }
   sceneCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2800,8 +2806,17 @@ function setSound(on) {
   const b = document.getElementById('soundBtn');
   if (b) { b.textContent = on ? 'SOUND ON' : 'SOUND OFF'; b.style.opacity = on ? '1' : '0.7'; }
 }
+function setGfx(mode) {
+  gfxMode = mode; gfxLow = false;
+  try { localStorage.setItem('plane-the-plane-gfx', mode); } catch (e) { /* not saved */ }
+  const b = document.getElementById('gfxBtn');
+  if (b) b.textContent = 'GFX ' + mode.toUpperCase();
+  resize();
+}
+document.getElementById('gfxBtn').addEventListener('click', e => { setGfx({ auto: 'low', low: 'high', high: 'auto' }[gfxMode] || 'auto'); e.currentTarget.blur(); });
 document.getElementById('soundBtn').addEventListener('click', e => { setSound(!soundOn); e.currentTarget.blur(); });
 setSound(soundOn);
+setGfx(gfxMode);
 let race = null;   // the air race in progress, if any
 let cruise = false;   // fast-forward through a long-haul job's real distance
 function resetPlane(fuel = 1) {
@@ -3757,7 +3772,7 @@ function update(dt) {
   if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen || accountOpen || regionsOpen) return;
   const m = p.model;
   windT += dt;
-  fogEnd = FOG_END - fogLevel() * 2800;
+  fogEnd = Math.min(FOG_END - fogLevel() * 2800, lowGfx() ? 2600 : 1e9);
   wind = windAt(p.pos);
   simHour = realHour();
   if (m.heli) return updateHeli(dt);
@@ -4641,16 +4656,16 @@ function render() {
     let drawn = 0;
     const tNow = performance.now() / 1000;
     const skyList = [];
-    for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - eye[0], q.z - eye[2]) < 3600) skyList.push(q); }
+    for (let k = 0; k < (lowGfx() ? 3 : skyCount()); k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - eye[0], q.z - eye[2]) < 3600) skyList.push(q); }
     for (const [i, a] of AIRPORTS.entries()) {
       if (!a.apron || Math.abs(a.x - eye[0]) > 3600 || Math.abs(a.z - eye[2]) > 3600) continue;
       const list = standsOf(a, i).filter(st => !st.away).map(st => ({ m: st.m, paint: st.paint, x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: 0, up: false }));
       for (const slot of (a.traffic || [])) if (slot && slot.plane) list.push(slot.plane);
-      if (Math.hypot(a.x - eye[0], a.z - eye[2]) < 1100) airportProps(a, i);
+      if (!lowGfx() && Math.hypot(a.x - eye[0], a.z - eye[2]) < 1100) airportProps(a, i);
       if (a.blocked) { const m = MODELS.find(q => q.name === '737'); list.push({ m, paint: { body: m.spec.body, stripe: [220, 40, 40], wing: m.spec.wing.col, fin: [220, 40, 40] }, x: a.x, y: a.apron.y + m.gearLen, z: a.z, yaw: a.hdgRad + 0.3, pitch: 0, up: false }); }
       for (const st of list) {
         const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
-        if (d > 2200 || d < 3 || drawn >= 10) continue;
+        if (d > (lowGfx() ? 1200 : 2200) || d < 3 || drawn >= (lowGfx() ? 4 : 10)) continue;
         if (st.v > 0.5 || st.phaseMoving) st.spin = 30 + st.v;
         if (blockedFrom(eye, add(pos, [0, 4, 0])) || blockedByAirportBuildings(a, eye, add(pos, [0, 3, 0]))) continue;
         pushModelTris(st);
@@ -6178,7 +6193,7 @@ function initTreesGL(g, compile, map) {
   return { ext, dprog, iprog, du, iu, inst, quad, total: trees.total, chunks: trees.chunks, tpl: treeTemplates(g) };
 }
 function drawTreesGL(T, g, eye, cr, cu, cf, hazeRGB, L) {
-  const TR = T.trees, ext = TR.ext, NEAR_TREES = 650;
+  const TR = T.trees, ext = TR.ext, NEAR_TREES = lowGfx() ? 250 : 650;
   const setU = (u) => {
     g.uniform3fv(u.uEye, eye); g.uniform3fv(u.uR, cr); g.uniform3fv(u.uU, cu); g.uniform3fv(u.uF, cf);
     g.uniform1f(u.uFocal, F); g.uniform1f(u.uHalfW, W / 2); g.uniform1f(u.uHalfH, H / 2); g.uniform1f(u.uNear, NEAR); g.uniform1f(u.uFar, 40000);
@@ -6698,7 +6713,7 @@ renderPilots();
 
 // ---------- main loop
 let last = performance.now();
-let fps = 60, lastFrameAt = 0;
+let fps = 60, lastFrameAt = 0, slowSecs = 0;
 let snapRequested = false;
 // saves the scene and the plane as a PNG (the HUD is left out)
 function takePhoto() {
@@ -6729,6 +6744,11 @@ function frame(now) {
   last = now;
   if (replay) { playReplayFrame(dt); requestAnimationFrame(frame); return; }
   if (lastFrameAt) fps += (1000 / Math.max(1, now - lastFrameAt) - fps) * 0.1;
+  // automatic graphics: a frame rate under 22 for five seconds in the air lowers the detail (resolution, draw distance, planes, props)
+  if (gfxMode === 'auto' && !gfxLow && pilot && !homeOpen && lastFrameAt && !document.hidden) {
+    slowSecs = fps < 22 ? slowSecs + (now - lastFrameAt) / 1000 : 0;
+    if (slowSecs > 5) { gfxLow = true; resize(); flashNote('GRAPHICS LOWERED FOR SPEED (GFX button to change)'); }
+  }
   lastFrameAt = now;
   for (let i = 0; i < 4; i++) update(dt / 4);   // sub-steps keep the physics stable
   render();
