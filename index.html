@@ -2548,6 +2548,30 @@ function drawRunwayLights() {
         ctx.fill();
       }
     }
+    // the apron side: blue taxiway lights, floodlights along the terminal, and the tower's rotating beacon
+    if (ap.complex && ap.apron && Math.hypot(ap.x - eye[0], ap.z - eye[2]) < 2500) {
+      const sd = ap.complex.side, sx = Math.cos(ap.hdgRad) * sd, sz = -Math.sin(ap.hdgRad) * sd, yA = ap.apron.y;
+      const pt = (off, along, up) => [ap.x + sx * off + ux * along, yA + up, ap.z + sz * off + uz * along];
+      ctx.fillStyle = 'rgba(90,150,255,0.95)';
+      for (let al = -ap.apron.half; al <= ap.apron.half; al += 25) {
+        const s = wildProject(pt(28, al, 0.6));
+        if (s) { ctx.beginPath(); ctx.arc(s[0], s[1], clamp(F * 0.9 / s[2], 0.7, 2), 0, 6.3); ctx.fill(); }
+      }
+      for (let al = -ap.apron.half; al <= ap.apron.half; al += 45) {
+        const s = wildProject(pt(128, al, 12));
+        if (!s) continue;
+        const r = clamp(F * 3.5 / s[2], 1.5, 7), g = ctx.createRadialGradient(s[0], s[1], 0, s[0], s[1], r * 3);
+        g.addColorStop(0, 'rgba(255,240,200,0.95)'); g.addColorStop(1, 'rgba(255,240,200,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s[0], s[1], r * 3, 0, 6.3); ctx.fill();
+      }
+      const b = wildProject(pt(150, ap.complex.terminal / 2 + 30, 38));
+      if (b) {
+        const on = Math.floor(performance.now() / 600) % 2 === 0;
+        ctx.fillStyle = on ? 'rgba(255,255,255,1)' : 'rgba(60,255,120,1)';
+        ctx.beginPath(); ctx.arc(b[0], b[1], clamp(F * 2.2 / b[2], 1.5, 6), 0, 6.3); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(255,250,220,0.95)';
+    }
   }
 }
 function drawWildlife() {
@@ -3960,6 +3984,46 @@ function trafficUpdate(dt) {
     trafficStep(a, i, dt);
   }
 }
+// ---------- airport props: a jet bridge at every stand, a fuel truck beside each parked plane, and service vans driving along the apron
+function pushBox(cx, y0, cz, yaw, lx, ly, lz, col) {
+  const sy = Math.sin(yaw), cy = Math.cos(yaw);
+  const P = (a, b, y) => [cx + sy * b + cy * a, y, cz + cy * b - sy * a];   // a: sideways, b: forward
+  const hx = lx / 2, hz = lz / 2, y1 = y0 + ly;
+  const face = (pts, n) => planeTris.push({ pts, vn: [n, n, n, n], col });
+  face([P(-hx, -hz, y0), P(hx, -hz, y0), P(hx, -hz, y1), P(-hx, -hz, y1)], [-sy, 0, -cy]);
+  face([P(hx, hz, y0), P(-hx, hz, y0), P(-hx, hz, y1), P(hx, hz, y1)], [sy, 0, cy]);
+  face([P(-hx, hz, y0), P(-hx, -hz, y0), P(-hx, -hz, y1), P(-hx, hz, y1)], [-cy, 0, sy]);
+  face([P(hx, -hz, y0), P(hx, hz, y0), P(hx, hz, y1), P(hx, -hz, y1)], [cy, 0, -sy]);
+  face([P(-hx, -hz, y1), P(hx, -hz, y1), P(hx, hz, y1), P(-hx, hz, y1)], [0, 1, 0]);
+}
+function airportProps(a, i) {
+  if (!a.apron) return;
+  const h = a.hdgRad, side = a.complex.side, ux = Math.sin(h), uz = Math.cos(h), sx = Math.cos(h) * side, sz = -Math.sin(h) * side;
+  const yA = a.apron.y, at = (off, along) => [a.x + sx * off + ux * along, a.z + sz * off + uz * along];
+  const faceYaw = h + side * Math.PI / 2;   // toward the terminal
+  for (const st of standsOf(a, i)) {
+    const sa = (st.x - a.x) * ux + (st.z - a.z) * uz;
+    // jet bridge: from the terminal wall toward the plane's nose, with a bright cab at the end
+    const nose = a.apron.off + st.m.ext.len, bl = Math.max(4, 132 - nose), mid = at(nose + bl / 2, sa);
+    pushBox(mid[0], yA + 3.4, mid[1], faceYaw, 3.4, 3, bl, [150, 156, 164]);
+    const cab = at(nose + 1.5, sa);
+    pushBox(cab[0], yA + 3.2, cab[1], faceYaw, 3.8, 3.4, 3, [235, 190, 40]);
+    if (!st.away) {
+      const f = at(a.apron.off - 4, sa + st.m.ext.span * 0.62);
+      pushBox(f[0], yA + 0.5, f[1], h, 2.5, 2.2, 7, [236, 238, 240]);
+      pushBox(f[0] - ux * 0, yA + 0.5, f[1], h, 2.5, 1.2, 7.2, [200, 40, 36]);
+    }
+  }
+  // two service vans drive up and down the apron on a lane between the taxiway and the parked tails
+  for (let k = 0; k < 2; k++) {
+    const t = performance.now() / 1000 * (0.09 + 0.03 * k) + k * 2.1, amp = a.apron.half - 25;
+    const along = Math.sin(t) * amp, dir = Math.cos(t) >= 0 ? 1 : -1;
+    const q = at(40 + k * 3, along), yaw = dir > 0 ? h : h + Math.PI;
+    pushBox(q[0], yA + 0.4, q[1], yaw, 2.1, 1.8, 4.6, k ? [40, 90, 170] : [230, 200, 40]);
+    const c = at(40 + k * 3, along + dir * 1.8);
+    pushBox(c[0], yA + 1.2, c[1], yaw, 2, 1.1, 1.6, [210, 214, 220]);
+  }
+}
 // true when one of the airport's buildings stands between the eye and the point
 function blockedByAirportBuildings(a, eye, pt) {
   for (const b of (a.parts || [])) {
@@ -4359,6 +4423,7 @@ function render() {
       if (!a.apron || Math.abs(a.x - eye[0]) > 3600 || Math.abs(a.z - eye[2]) > 3600) continue;
       const list = standsOf(a, i).filter(st => !st.away).map(st => ({ m: st.m, paint: st.paint, x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: 0, up: false }));
       if (a.traffic && a.traffic.plane) list.push(a.traffic.plane);
+      if (Math.hypot(a.x - eye[0], a.z - eye[2]) < 1100) airportProps(a, i);
       for (const st of list) {
         const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
         if (d > 2200 || d < 3 || drawn >= 10) continue;
