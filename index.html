@@ -8,6 +8,8 @@
 <style>
   html,body{margin:0;height:100%;background:#0b1020;overflow:hidden;font-family:ui-monospace,Menlo,Consolas,monospace}
   canvas{display:block;position:fixed;left:0;top:0;width:100vw;height:100vh}
+  #c,#gl{filter:contrast(1.06) saturate(1.1)}
+  #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 58%,rgba(0,0,0,0.26) 100%)}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
   #hangar .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;min-width:320px;max-height:92vh;overflow:auto}
@@ -94,6 +96,7 @@
 <body>
 <canvas id="c"></canvas>
 <canvas id="gl"></canvas>
+<div id="vignette"></div>
 <canvas id="fx"></canvas>
 <div id="livery">
   <div class="card">
@@ -516,7 +519,7 @@ const WINDOW = [36, 50, 70], INTAKE = [38, 40, 48], ENGINE = [196, 200, 210], PR
 // Builds the faces of a plane from its spec: a lofted fuselage, swept wings and tail, nacelles and details.
 // Faces are {pts, col, two}; two marks flat surfaces that are seen from both sides.
 function buildAircraft(m) {
-  const sp = m.spec, R = sp.r, L = sp.len, SEG = 22, N = 26;   // more segments: a rounder fuselage
+  const sp = m.spec, R = sp.r, L = sp.len, SEG = 32, N = 44;   // more segments: a rounder, smoother fuselage
   const out = [], lights = [];
 
   // a ring of SEG points around the axis (cx, cy) at height z
@@ -567,7 +570,7 @@ function buildAircraft(m) {
   tube(rings, 0, 0, (i, j) => {
     const t = (T[i] + T[i + 1]) / 2, th = 2 * Math.PI * (j + 0.5) / SEG;
     const c = Math.cos(th), s = Math.sin(th);
-    if (t > 1 - sp.nose * 0.6 && s > 0.3 && Math.abs(c) < 0.75) return WINDOW;     // cockpit glass
+    if (t > 1 - sp.nose * 0.64 && t < 1 - sp.nose * 0.16 && s > 0.3 && Math.abs(c) < 0.74) return Math.abs(c) < 0.07 ? [58, 62, 72] : WINDOW;   // windshield with a centre post
     if (sp.radome && t > 1 - 0.035) return sp.radome;                               // dark nose cone
     if (Math.abs(c) > 0.9 && win && t > win[0] && t < win[1] && sp.stripe && s < -0.05 && s > -0.3) return sp.stripe;   // livery stripe
     if (sp.belly && s < -0.4) return sp.belly;                                       // a different colour underneath
@@ -595,6 +598,24 @@ function buildAircraft(m) {
           });
           if (q.every(Boolean)) flat(q, WINDOW);
         }
+      }
+    }
+  }
+
+  // panel lines: a belt line along each side and a seam every few metres, so the skin does not look like one tube
+  if (win && L > 20) {
+    const LINE = [128, 134, 148];
+    const sideX2 = (z, y) => {
+      const t = (z + L / 2) / L, r = radiusAt(t), sn = (y - droopAt(t)) / (r * upAt(t));
+      return Math.abs(sn) > 0.97 ? null : r * Math.sqrt(1 - sn * sn);
+    };
+    const zA = -L / 2 + win[0] * L, zB = -L / 2 + win[1] * L;
+    for (const k of [-1, 1]) {
+      const belt = [[zA, R * -0.12], [zB, R * -0.12], [zB, R * -0.12 + 0.05], [zA, R * -0.12 + 0.05]].map(([zz, yy]) => { const x = sideX2(zz, yy); return x === null ? null : [k * (x + 0.008), yy, zz]; });
+      if (belt.every(Boolean)) flat(belt, LINE);
+      for (let z = zA + 3; z < zB; z += Math.max(3.2, L * 0.07)) {
+        const q = [[z, -R * 0.62], [z + 0.045, -R * 0.62], [z + 0.045, R * 0.72], [z, R * 0.72]].map(([zz, yy]) => { const x = sideX2(zz, yy); return x === null ? null : [k * (x + 0.008), yy, zz]; });
+        if (q.every(Boolean)) flat(q, LINE);
       }
     }
   }
@@ -711,6 +732,16 @@ function buildAircraft(m) {
     const ec = sp.engineCol || ENGINE;
     tube(rs, cx, cy, i => (i === 0 ? INTAKE : i === prof.length - 2 ? mul(ec, 0.8) : ec));
     flat(rs[0], INTAKE);
+    if (!sp.prop) {
+      // fan blades and a spinner in the intake, and a cone at the exhaust
+      for (let b = 0; b < 10; b++) {
+        const a = b / 10 * Math.PI * 2, a2 = a + 0.24;
+        flat([[cx, cy, zF + 0.012], [cx + Math.cos(a) * r * 0.86, cy + Math.sin(a) * r * 0.86, zF + 0.012], [cx + Math.cos(a2) * r * 0.86, cy + Math.sin(a2) * r * 0.86, zF + 0.012]], [124, 130, 142]);
+      }
+      tube([ringAt(cx, cy, r * 0.24, zF + 0.01), ringAt(cx, cy, r * 0.13, zF + r * 0.22), ringAt(cx, cy, 0.02, zF + r * 0.5)], cx, cy, () => [168, 172, 182]);
+      const zR = zF - ln;
+      tube([ringAt(cx, cy, r * 0.8, zR), ringAt(cx, cy, r * 0.5, zR - r * 0.55), ringAt(cx, cy, 0.03, zR - r * 1.2)], cx, cy, () => [74, 78, 88]);
+    }
   };
   for (const e of sp.engines) {
     if (e.s !== undefined) {
@@ -3462,8 +3493,22 @@ function render() {
     glow.addColorStop(1, 'rgba(255,240,200,0)');
     ctx.fillStyle = glow;
     ctx.beginPath(); ctx.arc(sx, sy, 150, 0, Math.PI * 2); ctx.fill();
+    // a wide soft halo, stronger when the sun is low and the air is hazy
+    const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, Math.max(W, H) * 0.6);
+    halo.addColorStop(0, `rgba(255,236,190,${(0.22 * elev).toFixed(3)})`);
+    halo.addColorStop(1, 'rgba(255,236,190,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = `rgba(255,250,225,${elev.toFixed(3)})`;
     ctx.beginPath(); ctx.arc(sx, sy, 9, 0, Math.PI * 2); ctx.fill();
+    // lens flare: faint discs along the line from the sun through the middle of the screen
+    if (sx > -W * 0.2 && sx < W * 1.2 && sy > -H * 0.2 && sy < H * 1.2) {
+      const dx = W / 2 - sx, dy = H / 2 - sy;
+      [[0.35, 14, 0.07], [0.7, 26, 0.05], [1.15, 10, 0.08], [1.6, 34, 0.04]].forEach(([k, rr, al]) => {
+        ctx.fillStyle = `rgba(255,235,190,${(al * elev).toFixed(3)})`;
+        ctx.beginPath(); ctx.arc(sx + dx * k, sy + dy * k, rr, 0, Math.PI * 2); ctx.fill();
+      });
+    }
   }
 
   // terrain: each cell is a quad on the height field, shaded by its slope and coloured by height.
@@ -3506,11 +3551,21 @@ function render() {
         if (dist < 1500 && corners.every(c => c[1] > WATER + 0.5) && !nearField(x0 + CELL / 2, z0 + CELL / 2)) addTrees(gx, gz, x0, z0);
       }
       else if (roll < 0.2) base = [150, 140, 84];
+      else if (n[1] > 0.93 && h < 300) {
+        // flat low ground: a patchwork of fields, each 2 by 2 cells, in a few crop colours
+        const fr = hash2(Math.floor(gx / 2) * 3 + 7, Math.floor(gz / 2) * 5 - 3);
+        const field = fr < 0.22 ? [198, 178, 98] : fr < 0.42 ? [92, 152, 62] : fr < 0.56 ? [132, 100, 64] : fr < 0.7 ? [122, 170, 86] : null;
+        if (field) base = mix(field, base, 0.15);
+      }
+      base = mul(base, 0.94 + 0.12 * hash2(gx * 13 + 5, gz * 7 - 9));   // a little variation from cell to cell
       // only flat lake surfaces are water; ground that the runway pulls down is not
-      if (corners.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [44, 96, 140];
+      const shore = corners.some(c => c[1] < WATER + 2.4);
+      if (corners.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [40, 94, 138];
+      else if (shore) base = [212, 198, 150];                                           // a sandy beach along the water
+      base = mix(base, ROCK, clamp((0.84 - n[1]) / 0.1, 0, 1) * 0.75);                   // steep slopes show bare rock
       base = mix(base, ROCK, clamp((h - 350) / 250, 0, 1) * 0.8);
       base = mix(base, SNOW, clamp((h - 700) / 150, 0, 1));
-      const col = rgb(mix(mul(base, shadeFor(n) * L), mul(HZ, L), fogAt(dist)));
+      const col = rgb(mix(mul(base, shadeFor(n) * L), mul(mix(HZ, [168, 196, 232], 0.32), L), fogAt(dist)));   // distant ground fades to a bluer haze
       const cam = corners.map(toCam);
       terrainItems.push({ d: dist, draw: () => drawPoly(cam, col) });
     }
@@ -3591,10 +3646,15 @@ function render() {
         const q = toCam([c.x, c.y, c.z]);
         if (q[2] < NEAR) return;
         const sx = W / 2 + q[0] * F / q[2], sy = H / 2 - q[1] * F / q[2], r = c.r * F / q[2];
-        ctx.fillStyle = rgba(mul(cloudLit, 0.78), alpha);
+        const a = Number(alpha);
+        const under = ctx.createRadialGradient(sx, sy + r * 0.25, r * 0.1, sx, sy + r * 0.2, r);
+        under.addColorStop(0, rgba(mul(cloudLit, 0.72), a)); under.addColorStop(0.7, rgba(mul(cloudLit, 0.78), a * 0.7)); under.addColorStop(1, rgba(mul(cloudLit, 0.78), 0));
+        ctx.fillStyle = under;
         ctx.beginPath(); ctx.arc(sx, sy + r * 0.2, r, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = rgba(cloudLit, alpha);
-        ctx.beginPath(); ctx.arc(sx, sy - r * 0.12, r * 0.82, 0, Math.PI * 2); ctx.fill();
+        const top = ctx.createRadialGradient(sx, sy - r * 0.25, r * 0.05, sx, sy - r * 0.1, r * 0.88);
+        top.addColorStop(0, rgba(cloudLit, a)); top.addColorStop(0.62, rgba(cloudLit, a * 0.85)); top.addColorStop(1, rgba(cloudLit, 0));
+        ctx.fillStyle = top;
+        ctx.beginPath(); ctx.arc(sx, sy - r * 0.1, r * 0.88, 0, Math.PI * 2); ctx.fill();
       }
     });
   }
@@ -4313,7 +4373,8 @@ void main() {
   vec3 h = normalize(uSun + v);
   float diff = max(dot(n, uSun), 0.0);
   float hemi = 0.5 + 0.5 * n.y;
-  float spec = pow(max(dot(n, h), 0.0), 40.0) * 0.45;
+  float gloss = 1.0 - dot(vC, vec3(0.3333));            // dark parts (glass, tyres) are glossier
+  float spec = pow(max(dot(n, h), 0.0), 40.0) * (0.45 + 1.1 * gloss * gloss);
   // an uploaded picture is laid over the body where its coordinates fall inside 0..1
   vec3 base = vC;
   if (uHasTex > 0.5 && vUV.x >= 0.0 && vUV.x <= 1.0 && vUV.y >= 0.0 && vUV.y <= 1.0) {
@@ -4321,6 +4382,11 @@ void main() {
     base = mix(base, t.rgb, t.a);
   }
   vec3 col = base * (0.3 + 0.62 * diff + 0.25 * hemi) * uDim + vec3(spec);
+  // a soft reflection of the sky, strongest where the surface turns away from the eye
+  vec3 rf = reflect(-v, n);
+  vec3 sky = mix(vec3(0.74, 0.84, 0.95), vec3(0.3, 0.52, 0.86), clamp(rf.y, 0.0, 1.0)) * uDim;
+  float fres = pow(1.0 - max(dot(n, v), 0.0), 3.0);
+  col += sky * fres * (0.12 + 0.35 * gloss * gloss);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 let planeProg = null, planeBuf = null, planeLoc = {}, planeUni = {};
