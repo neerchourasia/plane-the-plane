@@ -13,6 +13,7 @@ export default async function handler(req, res) {
     name,
     callsign: String(b.callsign || '').slice(0, 12),
     plane: String(b.plane || '').slice(0, 20),
+    race: /^r[0-9]{1,2}$/.test(String(b.race || '')) ? String(b.race) : '',
     x: num(b.x), y: num(b.y), z: num(b.z), yaw: num(b.yaw),
     v: Math.max(0, Math.min(700, num(b.v)))
   };

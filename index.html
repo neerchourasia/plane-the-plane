@@ -1501,6 +1501,8 @@ async function loadBoard() {
     const who = r => r.callsign || r.name;
     box.append(boardList('Longest flight', b.best, r => `${who(r)} - ${r.best.toFixed(1)} km`));
     box.append(boardList('Most back flips', b.flips, r => `${who(r)} - ${r.flips}`));
+    if (b.landing) box.append(boardList('Landing score', b.landing, r => `${who(r)} - ${r.landing} points`));
+    if (b.butters) box.append(boardList('Butter landings', b.butters, r => `${who(r)} - ${r.butters}`));
     box.append(boardList('Daily missions today', b.daily, r => `${who(r)} - ${r.daily} of 3`));
   } catch (e) {
     box.textContent = "The leaderboard needs a connection.";
@@ -1932,7 +1934,7 @@ async function syncPresence() {
     pendingSay = '';
     const data = await api('/api/presence', {
       method: 'POST', token,
-      body: { x: Math.round(p.pos[0]), y: Math.round(p.pos[1]), z: Math.round(p.pos[2]), yaw: +p.yaw.toFixed(2), v: Math.round(p.speed), plane: p.model.name, callsign: save.callsign || '', say, since: lastChatT }
+      body: { x: Math.round(p.pos[0]), y: Math.round(p.pos[1]), z: Math.round(p.pos[2]), yaw: +p.yaw.toFixed(2), v: Math.round(p.speed), plane: p.model.name, callsign: save.callsign || '', race: race && race.def ? race.def.id : '', say, since: lastChatT }
     });
     const t0 = performance.now();
     others = (data.others || []).map(o => ({ ...o, t0 }));
@@ -1964,7 +1966,7 @@ function drawPilots() {
     if (wl && wr) { ctx.beginPath(); ctx.moveTo(wl[0], wl[1]); ctx.lineTo(wr[0], wr[1]); ctx.stroke(); }
     ctx.fillStyle = 'rgba(190,245,255,0.95)';
     ctx.textAlign = 'center';
-    ctx.fillText(`${o.callsign || o.name} · ${o.plane}`, s[0], s[1] - 14);
+    ctx.fillText(`${o.callsign || o.name} · ${o.plane}${o.race ? ' · RACING ' + o.race.toUpperCase() : ''}`, s[0], s[1] - 14);
   }
   ctx.textAlign = 'right';
   ctx.fillStyle = '#8fb3c9';
@@ -2957,6 +2959,10 @@ function awardLanding(impact) {
     return;
   }
   const grade = impact < 1 ? 'BUTTER' : impact < 2.5 ? 'GREAT' : impact < 5 ? 'OK' : 'HARD';
+  // landing score for the online board, and a shout on the shared channel for the best and worst landings
+  save.landingScore = (save.landingScore || 0) + ({ BUTTER: 10, GREAT: 6, OK: 3, HARD: 0 })[grade];
+  if (grade === 'BUTTER') save.butters = (save.butters || 0) + 1;
+  if ((grade === 'BUTTER' || grade === 'HARD') && fieldHere && typeof pendingSay !== 'undefined' && !pendingSay) pendingSay = grade === 'BUTTER' ? `Butter landing at ${fieldHere.code}!` : `Hard landing at ${fieldHere.code}... ouch`;
   const bonus = grade === 'BUTTER' ? 25 : 0;
   const onField = tower && Math.hypot(p.pos[0] - AIRPORTS[tower.i].x, p.pos[2] - AIRPORTS[tower.i].z) < AIRPORTS[tower.i].len / 2 + 300;
   const cleared = onField && tower.cleared;
