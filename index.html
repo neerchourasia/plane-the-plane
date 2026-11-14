@@ -894,7 +894,9 @@ const SKY_TOP = [40, 95, 185], HORIZON = [185, 212, 232];
 const RUNWAY_COL = [58, 60, 66];
 
 // ---------- terrain: hills and mountains on a height grid. Pads (runway, contract strips, offers) are kept flat.
-const TER_STEP = 30, TER_HALF = 6000, TER_N = Math.round(2 * TER_HALF / TER_STEP) + 1;
+// the Classic world is 18 km across; a real region has 12 km of elevation data, so it keeps that size
+const WS = typeof REGION_DATA !== 'undefined' ? 1 : 1.5;
+const TER_STEP = 30, TER_HALF = 6000 * WS, TER_N = Math.round(2 * TER_HALF / TER_STEP) + 1;
 const TER_GRID = new Float32Array(TER_N * TER_N);
 const PAD_BLEND = 220;   // metres over which the ground rises back to its natural height beside a pad
 const ROCK = [118, 110, 100], SNOW = [236, 240, 246];
@@ -916,7 +918,7 @@ function naturalHeight(x, z) {
   const big = valueNoise(x / 1600, z / 1600);
   const mid = valueNoise(x / 500 + 31, z / 500 - 17);
   const small = valueNoise(x / 140 + 7, z / 140 + 3);
-  const fade = clamp((5100 - Math.hypot(x, z)) / 800, 0, 1);
+  const fade = clamp((5100 * WS - Math.hypot(x, z)) / 800, 0, 1);
   const peaks = Math.pow(clamp((big - 0.5) * 2.4, 0, 1), 1.5) * 1000;
   return fade * (peaks + mid * mid * 160 + small * 30);
 }
@@ -1154,7 +1156,58 @@ const AIRPORT_DATA = [
   { code: 'CVG', name: 'Cincinnati', hdg: 180, len: 3660 },
   { code: 'PIT', name: 'Pittsburgh', hdg: 100, len: 3500 },
   { code: 'CLE', name: 'Cleveland', hdg: 60, len: 3050 },
-  { code: 'SJC', name: 'San Jose California', hdg: 120, len: 3350 }
+  { code: 'SJC', name: 'San Jose California', hdg: 120, len: 3350 },
+  { code: 'BUF', name: 'Buffalo', hdg: 50, len: 2652 },
+  { code: 'ABQ', name: 'Albuquerque', hdg: 80, len: 4200 },
+  { code: 'OKC', name: 'Oklahoma City', hdg: 170, len: 3200 },
+  { code: 'MEM', name: 'Memphis', hdg: 180, len: 3400 },
+  { code: 'BNA', name: 'Nashville', hdg: 20, len: 3200 },
+  { code: 'RDU', name: 'Raleigh Durham', hdg: 50, len: 3000 },
+  { code: 'JAX', name: 'Jacksonville', hdg: 80, len: 3000 },
+  { code: 'RSW', name: 'Fort Myers', hdg: 60, len: 3000 },
+  { code: 'FLL', name: 'Fort Lauderdale', hdg: 100, len: 2743 },
+  { code: 'OGG', name: 'Maui', hdg: 20, len: 2135 },
+  { code: 'KOA', name: 'Kona', hdg: 170, len: 3350 },
+  { code: 'SMF', name: 'Sacramento', hdg: 160, len: 2621 },
+  { code: 'BOI', name: 'Boise', hdg: 100, len: 3050 },
+  { code: 'FAI', name: 'Fairbanks', hdg: 20, len: 3500 },
+  { code: 'MKE', name: 'Milwaukee', hdg: 10, len: 3050 },
+  { code: 'IND', name: 'Indianapolis', hdg: 50, len: 3400 },
+  { code: 'YEG', name: 'Edmonton', hdg: 20, len: 3300 },
+  { code: 'YWG', name: 'Winnipeg', hdg: 130, len: 3350 },
+  { code: 'YHZ', name: 'Halifax', hdg: 140, len: 3200 },
+  { code: 'YOW', name: 'Ottawa', hdg: 70, len: 3050 },
+  { code: 'GDL', name: 'Guadalajara', hdg: 10, len: 4000 },
+  { code: 'MTY', name: 'Monterrey', hdg: 110, len: 3000 },
+  { code: 'ASU', name: 'Asuncion', hdg: 20, len: 3350 },
+  { code: 'LPB', name: 'La Paz', hdg: 100, len: 4000 },
+  { code: 'PTY', name: 'Panama City', hdg: 30, len: 3050 },
+  { code: 'GYE', name: 'Guayaquil', hdg: 30, len: 2790 },
+  { code: 'MAO', name: 'Manaus', hdg: 100, len: 2700 },
+  { code: 'BSB', name: 'Brasilia', hdg: 110, len: 3300 },
+  { code: 'REC', name: 'Recife', hdg: 180, len: 3000 },
+  { code: 'FOR', name: 'Fortaleza', hdg: 130, len: 2545 },
+  { code: 'POA', name: 'Porto Alegre', hdg: 110, len: 2280 },
+  { code: 'CWB', name: 'Curitiba', hdg: 150, len: 2200 },
+  { code: 'LUX', name: 'Luxembourg', hdg: 240, len: 4000 },
+  { code: 'BSL', name: 'Basel Mulhouse', hdg: 150, len: 3900 },
+  { code: 'BLQ', name: 'Bologna', hdg: 300, len: 2803 },
+  { code: 'SKG', name: 'Thessaloniki', hdg: 160, len: 2440 },
+  { code: 'HER', name: 'Heraklion', hdg: 270, len: 2680 },
+  { code: 'LCA', name: 'Larnaca', hdg: 220, len: 2994 },
+  { code: 'MLA', name: 'Malta', hdg: 310, len: 3544 },
+  { code: 'IBZ', name: 'Ibiza', hdg: 60, len: 2800 },
+  { code: 'TFS', name: 'Tenerife South', hdg: 70, len: 3200 },
+  { code: 'LPA', name: 'Gran Canaria', hdg: 30, len: 3100 },
+  { code: 'BGY', name: 'Milan Bergamo', hdg: 280, len: 2800 },
+  { code: 'PNH', name: 'Phnom Penh', hdg: 230, len: 3000 },
+  { code: 'SDJ', name: 'Sendai', hdg: 90, len: 3000 },
+  { code: 'HIJ', name: 'Hiroshima', hdg: 100, len: 3000 },
+  { code: 'KMJ', name: 'Kumamoto', hdg: 70, len: 3000 },
+  { code: 'TAO', name: 'Qingdao', hdg: 170, len: 3400 },
+  { code: 'DLC', name: 'Dalian', hdg: 100, len: 3300 },
+  { code: 'NKG', name: 'Nanjing', hdg: 70, len: 3600 },
+  { code: 'CSX', name: 'Changsha', hdg: 180, len: 3200 }
 ];
 // real latitude and longitude of each airport, in degrees
 const GEO_AIRPORTS = {
@@ -1167,7 +1220,8 @@ const GEO_AIRPORTS = {
   HNL: [21.32, -157.92], PHX: [33.43, -112.01], IAH: [29.98, -95.34], EWR: [40.69, -74.17], DTW: [42.21, -83.35], PHL: [39.87, -75.24], CLT: [35.21, -80.94], SLC: [40.79, -111.98], SAN: [32.73, -117.19], YUL: [45.47, -73.74], YYC: [51.11, -114.02], ANC: [61.17, -149.99], LIM: [-12.02, -77.11], BOG: [4.7, -74.15], GIG: [-22.81, -43.25], DUB: [53.42, -6.27], MAN: [53.35, -2.27], LIS: [38.77, -9.13], ATH: [37.94, 23.94], CPH: [55.62, 12.65], ARN: [59.65, 17.92], OSL: [60.19, 11.1], SVO: [55.97, 37.41], RUH: [24.96, 46.7], JED: [21.68, 39.16], TLV: [32.01, 34.89], NBO: [-1.32, 36.93], LOS: [6.58, 3.32], CMN: [33.37, -7.59], BLR: [13.2, 77.71], CCU: [22.65, 88.45], SGN: [10.82, 106.66], MNL: [14.51, 121.02], TPE: [25.08, 121.23], BNE: [-27.38, 153.12], PER: [-31.94, 115.97],
   LGW: [51.15, -0.19], STN: [51.89, 0.26], BRU: [50.9, 4.48], VIE: [48.11, 16.57], PRG: [50.1, 14.26], BUD: [47.44, 19.26], MXP: [45.63, 8.72], NCE: [43.66, 7.22], GVA: [46.24, 6.11], HAM: [53.63, 10.0], LED: [59.8, 30.26], AUH: [24.43, 54.65], MCT: [23.59, 58.28], KWI: [29.23, 47.97], CMB: [7.18, 79.88], KTM: [27.7, 85.36], DAC: [23.84, 90.4], KHI: [24.91, 67.16], HAN: [21.22, 105.81], CTU: [30.58, 103.95], SZX: [22.64, 113.81], NRT: [35.77, 140.39], CTS: [42.78, 141.69], FUK: [33.59, 130.45], CJU: [33.51, 126.49], ADL: [-34.95, 138.53], WLG: [-41.33, 174.81], DUR: [-29.97, 30.95], MRU: [-20.43, 57.68], PDX: [45.59, -122.6], AUS: [30.19, -97.67], BWI: [39.18, -76.67], TPA: [27.98, -82.53], CUN: [21.04, -86.87], SJU: [18.44, -66.0], HAV: [22.99, -82.41], MVD: [-34.84, -56.03],
   LGA: [40.78, -73.87], ORY: [48.72, 2.38], BER: [52.36, 13.5], OTP: [44.57, 26.08], SOF: [42.7, 23.41], BEG: [44.82, 20.31], KEF: [63.99, -22.61], PMI: [39.55, 2.73], AGP: [36.67, -4.5], AMM: [31.72, 35.99], BEY: [33.82, 35.49], TAS: [41.26, 69.28], ALA: [43.35, 77.04], MLE: [4.19, 73.53], HKT: [8.11, 98.32], DPS: [-8.75, 115.17], HGH: [30.23, 120.43], NGO: [34.86, 136.81], OKA: [26.2, 127.65], PPT: [-17.56, -149.61], NAN: [-17.76, 177.44], GUM: [13.48, 144.8], POM: [-9.44, 147.22], ALG: [36.69, 3.22], TUN: [36.85, 10.23], EBB: [0.04, 32.44], DAR: [-6.88, 39.2], HRE: [-17.93, 31.09], SJO: [9.99, -84.21], CCS: [10.60, -66.99],
-  DUS: [51.29, 6.77], CGN: [50.87, 7.14], STR: [48.69, 9.22], LYS: [45.73, 5.09], MRS: [43.44, 5.22], TLS: [43.63, 1.37], OPO: [41.24, -8.68], VLC: [39.49, -0.48], NAP: [40.89, 14.29], EDI: [55.95, -3.37], GLA: [55.87, -4.43], BHX: [52.45, -1.75], GOT: [57.66, 12.28], RIX: [56.92, 23.97], TLL: [59.41, 24.83], KRK: [50.08, 19.78], IKA: [35.42, 51.15], BAH: [26.27, 50.63], SHJ: [25.33, 55.52], SAW: [40.9, 29.31], AYT: [36.9, 30.8], PKX: [39.51, 116.41], CKG: [29.72, 106.64], XIY: [34.45, 108.75], KMG: [25.1, 102.93], PUS: [35.18, 128.94], GMP: [37.56, 126.8], KHH: [22.58, 120.35], PEN: [5.3, 100.28], BKI: [5.94, 116.05], CEB: [10.31, 123.98], DAD: [16.04, 108.2], HYD: [17.24, 78.43], MAA: [12.99, 80.17], COK: [10.15, 76.4], AMD: [23.07, 72.63], ISB: [33.55, 72.83], ABJ: [5.26, -3.93], LAD: [-8.86, 13.23], WDH: [-22.48, 17.46], MCI: [39.3, -94.71], STL: [38.75, -90.37], CVG: [39.05, -84.67], PIT: [40.49, -80.23], CLE: [41.41, -81.85], SJC: [37.36, -121.93]
+  DUS: [51.29, 6.77], CGN: [50.87, 7.14], STR: [48.69, 9.22], LYS: [45.73, 5.09], MRS: [43.44, 5.22], TLS: [43.63, 1.37], OPO: [41.24, -8.68], VLC: [39.49, -0.48], NAP: [40.89, 14.29], EDI: [55.95, -3.37], GLA: [55.87, -4.43], BHX: [52.45, -1.75], GOT: [57.66, 12.28], RIX: [56.92, 23.97], TLL: [59.41, 24.83], KRK: [50.08, 19.78], IKA: [35.42, 51.15], BAH: [26.27, 50.63], SHJ: [25.33, 55.52], SAW: [40.9, 29.31], AYT: [36.9, 30.8], PKX: [39.51, 116.41], CKG: [29.72, 106.64], XIY: [34.45, 108.75], KMG: [25.1, 102.93], PUS: [35.18, 128.94], GMP: [37.56, 126.8], KHH: [22.58, 120.35], PEN: [5.3, 100.28], BKI: [5.94, 116.05], CEB: [10.31, 123.98], DAD: [16.04, 108.2], HYD: [17.24, 78.43], MAA: [12.99, 80.17], COK: [10.15, 76.4], AMD: [23.07, 72.63], ISB: [33.55, 72.83], ABJ: [5.26, -3.93], LAD: [-8.86, 13.23], WDH: [-22.48, 17.46], MCI: [39.3, -94.71], STL: [38.75, -90.37], CVG: [39.05, -84.67], PIT: [40.49, -80.23], CLE: [41.41, -81.85], SJC: [37.36, -121.93],
+  BUF: [42.94, -78.73], ABQ: [35.04, -106.61], OKC: [35.39, -97.6], MEM: [35.04, -89.98], BNA: [36.12, -86.68], RDU: [35.88, -78.79], JAX: [30.49, -81.69], RSW: [26.54, -81.76], FLL: [26.07, -80.15], OGG: [20.9, -156.43], KOA: [19.74, -156.05], SMF: [38.7, -121.59], BOI: [43.56, -116.22], FAI: [64.82, -147.86], MKE: [42.95, -87.9], IND: [39.72, -86.29], YEG: [53.31, -113.58], YWG: [49.91, -97.24], YHZ: [44.88, -63.51], YOW: [45.32, -75.67], GDL: [20.52, -103.31], MTY: [25.78, -100.11], ASU: [-25.24, -57.52], LPB: [-16.51, -68.19], PTY: [9.07, -79.38], GYE: [-2.16, -79.88], MAO: [-3.04, -60.05], BSB: [-15.87, -47.92], REC: [-8.13, -34.92], FOR: [-3.78, -38.53], POA: [-29.99, -51.17], CWB: [-25.53, -49.18], LUX: [49.63, 6.21], BSL: [47.59, 7.53], BLQ: [44.53, 11.29], SKG: [40.52, 22.97], HER: [35.34, 25.18], LCA: [34.88, 33.62], MLA: [35.86, 14.48], IBZ: [38.87, 1.37], TFS: [28.04, -16.57], LPA: [27.93, -15.39], BGY: [45.67, 9.7], PNH: [11.55, 104.84], SDJ: [38.14, 140.92], HIJ: [34.44, 132.92], KMJ: [32.84, 130.86], TAO: [36.27, 120.37], DLC: [38.97, 121.54], NKG: [31.74, 118.86], CSX: [28.19, 113.22]
 };
 // Runways are kept to 2600 m (2000 m for the airports added later) so they all fit in the 12 km world. Each airport is placed where its runway
 // stays clear of the home runway and of the other airports, otherwise their flat pads would bury each other.
@@ -1177,27 +1231,29 @@ const AIRPORTS = [];
   const homeGap = ([px, pz]) => Math.hypot(Math.max(Math.abs(px) - RUNWAY.x, 0), Math.max(RUNWAY.z0 - pz, pz - RUNWAY.z1, 0));
   AIRPORT_DATA.forEach((a, i) => {
     let hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
-    let len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : i < 153 ? 800 : 600)), spot = null;
+    let len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : i < 199 ? 600 : 800)), spot = null;
     if (REGION) {
       // scan the whole map for the flattest, driest strip; the runway may turn up to 25 degrees from its real heading
       const cap = len, hl2 = cap / 2, base0 = hdgRad;
       let best = null;
       for (const turn of [0, 12, -12, 25, -25]) {
         const h2 = base0 + turn * Math.PI / 180, ux2 = Math.sin(h2), uz2 = Math.cos(h2);
-        for (let gx = -5250; gx <= 5250; gx += 250) {
-          for (let gz = -5250; gz <= 5250; gz += 250) {
+        for (let gx = -5250 * WS; gx <= 5250 * WS; gx += 250) {
+          for (let gz = -5250 * WS; gz <= 5250 * WS; gz += 250) {
             let lo = 1e9, hi = -1e9;
             for (let t = -hl2; t <= hl2; t += 200) { const h = naturalAt(gx + ux2 * t, gz + uz2 * t); lo = Math.min(lo, h); hi = Math.max(hi, h); }
             if (lo < WATER + 1.5) continue;
             const score = hi - lo + Math.abs(turn) * 1.2;
             if (best && score >= best.score) continue;
             const e1 = [gx - ux2 * hl2, gz - uz2 * hl2], e2 = [gx + ux2 * hl2, gz + uz2 * hl2];
-            if ([e1, e2].some(q => Math.abs(q[0]) > 5500 || Math.abs(q[1]) > 5500) || [e1, [gx, gz], e2].some(q => homeGap(q) < 600)) continue;
+            if ([e1, e2].some(q => Math.abs(q[0]) > 5500 * WS || Math.abs(q[1]) > 5500 * WS) || [e1, [gx, gz], e2].some(q => homeGap(q) < 600)) continue;
             const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
             const segPt = (p1, p2, c) => { const ax = p2[0] - p1[0], az = p2[1] - p1[1], t = clamp(((c[0] - p1[0]) * ax + (c[1] - p1[1]) * az) / (ax * ax + az * az || 1), 0, 1); return Math.hypot(c[0] - p1[0] - ax * t, c[1] - p1[1] - az * t); };
             let ok = true;
             for (const o of AIRPORTS) {
-              const ox = Math.sin(o.hdgRad) * o.len / 2, oz = Math.cos(o.hdgRad) * o.len / 2, o1 = [o.x - ox, o.z - oz], o2 = [o.x + ox, o.z + oz];
+              if (Math.hypot(o.x - gx, o.z - gz) > hl2 + o.len / 2 + 500) continue;   // too far away to matter
+              if (!o.ends) { const ox0 = Math.sin(o.hdgRad) * o.len / 2, oz0 = Math.cos(o.hdgRad) * o.len / 2; o.ends = [[o.x - ox0, o.z - oz0], [o.x + ox0, o.z + oz0]]; }
+              const [o1, o2] = o.ends;
               if ((side(e1, e2, o1) * side(e1, e2, o2) < 0 && side(o1, o2, e1) * side(o1, o2, e2) < 0) || Math.min(segPt(e1, e2, o1), segPt(e1, e2, o2), segPt(o1, o2, e1), segPt(o1, o2, e2)) < 500) { ok = false; break; }
             }
             if (ok) best = { x: gx, z: gz, hdg: h2, score };
@@ -1215,21 +1271,25 @@ const AIRPORTS = [];
       return lo < WATER + 1.5 ? 1e9 : hi - lo;
     };
     if (!spot) for (const [gap, shrink, flatLimit] of [[450, 1, 40], [300, 1, 70], [180, 1, 120], [180, 0.75, 180], [120, 0.6, 320]]) {
-      len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : i < 153 ? 800 : 600)) * shrink;
+      len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : i < 199 ? 600 : 800)) * shrink;
       const hl = len / 2;
       for (let t = 0; t < 1500 && !spot; t++) {
-        const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200;
+        const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200 * WS;
         const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
         const pts = spread(x, z, ux, uz, hl);
-        if (pts.some(([px, pz]) => Math.abs(px) > 5500 || Math.abs(pz) > 5500)) continue;
+        if (pts.some(([px, pz]) => Math.abs(px) > 5500 * WS || Math.abs(pz) > 5500 * WS)) continue;
         if (REGION && rough(x, z, hl) > flatLimit) continue;
         if (pts.some(q => homeGap(q) < 500)) continue;
-        if (AIRPORTS.some(o => spread(o.x, o.z, Math.sin(o.hdgRad), Math.cos(o.hdgRad), o.len / 2).some(q => pts.some(r => Math.hypot(q[0] - r[0], q[1] - r[1]) < gap)))) continue;
+        if (AIRPORTS.some(o => {
+          if (Math.hypot(o.x - x, o.z - z) > hl + o.len / 2 + gap) return false;   // too far away to matter
+          if (!o.samples) o.samples = spread(o.x, o.z, Math.sin(o.hdgRad), Math.cos(o.hdgRad), o.len / 2);
+          return o.samples.some(q => pts.some(r => Math.hypot(q[0] - r[0], q[1] - r[1]) < gap));
+        })) continue;
         spot = { x, z };
       }
       if (spot) break;
     }
-    if (!spot) spot = { x: Math.cos(i) * 4800, z: Math.sin(i) * 4800 };
+    if (!spot) spot = { x: Math.cos(i) * 4800 * WS, z: Math.sin(i) * 4800 * WS };
     const geo = GEO_AIRPORTS[a.code];
     AIRPORTS.push({ ...a, len, realLen: a.len, lat: geo[0], lon: geo[1], x: spot.x, z: spot.z, hdgRad });
   });
@@ -1770,7 +1830,7 @@ function renderBadges() {
 
 // ---------- rivers and trees
 // Three rivers wind from north to south across the map. Trees stand in the forest cells. Both stay off the airfields.
-const RIVERS = [0, 1, 2].map(i => ({ x0: (i - 1) * 2600 + (hash2(i, 41) - 0.5) * 900, amp: 500 + 400 * hash2(i, 42), wl: 1100 + 500 * hash2(i, 43), ph: hash2(i, 44) * 6.28 }));
+const RIVERS = Array.from({ length: Math.round(3 * WS) }, (_, i) => ({ x0: (i - (Math.round(3 * WS) - 1) / 2) * 2600 + (hash2(i, 41) - 0.5) * 900, amp: 500 + 400 * hash2(i, 42), wl: 1100 + 500 * hash2(i, 43), ph: hash2(i, 44) * 6.28 }));
 const riverX = (r, z) => r.x0 + r.amp * Math.sin(z / r.wl + r.ph);
 function nearField(x, z) {
   if (Math.abs(x) < 450 && z > RUNWAY.z0 - 500 && z < RUNWAY.z1 + 500) return true;
@@ -1920,10 +1980,10 @@ function renderRepairs() {
 }
 
 // ---------- storms and icing: thunderstorm cells drift across the map; high up in wet or stormy air ice builds on the wings
-const STORMS = [0, 1, 2].map(i => ({ x: (hash2(i, 51) - 0.5) * 8000, z: (hash2(i, 52) - 0.5) * 8000, vx: (hash2(i, 53) - 0.5) * 8, vz: (hash2(i, 54) - 0.5) * 8, r: 900 + 500 * hash2(i, 55) }));
+const STORMS = Array.from({ length: Math.round(3 * WS * WS) }, (_, i) => ({ x: (hash2(i, 51) - 0.5) * 8000 * WS, z: (hash2(i, 52) - 0.5) * 8000 * WS, vx: (hash2(i, 53) - 0.5) * 8, vz: (hash2(i, 54) - 0.5) * 8, r: 900 + 500 * hash2(i, 55) }));
 function stormPos(st, t) {
-  const w = 12000;
-  return [((st.x + st.vx * t + 6000) % w + w) % w - 6000, ((st.z + st.vz * t + 6000) % w + w) % w - 6000];
+  const w = 2 * TER_HALF, h = TER_HALF;
+  return [((st.x + st.vx * t + h) % w + w) % w - h, ((st.z + st.vz * t + h) % w + w) % w - h];
 }
 // 0 outside every storm, up to 1 at the middle of one
 function stormStrength(pos) {
@@ -2531,8 +2591,8 @@ let seed = 7;
 const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
 const buildings = [];
-for (let i = 0; i < 600; i++) {
-  const x = (rnd() * 2 - 1) * 4000, z = (rnd() * 2 - 1) * 4000;
+for (let i = 0; i < Math.round(600 * WS * WS); i++) {
+  const x = (rnd() * 2 - 1) * 4000 * WS, z = (rnd() * 2 - 1) * 4000 * WS;
   if (Math.abs(x) < 60 && z > -300 && z < 1200) continue;   // keep runway clear
   if (Math.hypot(x, z) < 120) continue;
   const tall = rnd() < 0.1;
@@ -2546,8 +2606,8 @@ for (let i = 0; i < 600; i++) {
 
 // towns: clusters of buildings, taller toward the centre, joined by roads
 const towns = [];
-for (let t = 0; t < 9; t++) {
-  const tx = (rnd() * 2 - 1) * 3500, tz = (rnd() * 2 - 1) * 3500;
+for (let t = 0; t < Math.round(9 * WS * WS); t++) {
+  const tx = (rnd() * 2 - 1) * 3500 * WS, tz = (rnd() * 2 - 1) * 3500 * WS;
   if (Math.hypot(tx, tz) < 600) continue;
   towns.push({ x: tx, z: tz });
   for (let i = 0; i < 30; i++) {
@@ -2564,17 +2624,21 @@ for (let t = 0; t < 9; t++) {
 // within 220 m of a runway (its whole length) or of the home runway
 const onAirfield = (x, z, margin = 220) => {
   if (Math.abs(x) < RUNWAY.x + margin && z > RUNWAY.z0 - margin && z < RUNWAY.z1 + margin) return true;
-  return AIRPORTS.some(a => {
-    const ux = Math.sin(a.hdgRad), uz = Math.cos(a.hdgRad), dx = x - a.x, dz = z - a.z, t = clamp(dx * ux + dz * uz, -a.len / 2, a.len / 2);
-    return Math.hypot(dx - ux * t, dz - uz * t) < margin;
-  });
+  for (const a of AIRPORTS) {
+    const dx = x - a.x, dz = z - a.z, reach = a.len / 2 + margin;
+    if (dx > reach || dx < -reach || dz > reach || dz < -reach) continue;   // far away: skip the trigonometry
+    if (a.ux === undefined) { a.ux = Math.sin(a.hdgRad); a.uz = Math.cos(a.hdgRad); }
+    const t = clamp(dx * a.ux + dz * a.uz, -a.len / 2, a.len / 2);
+    if (Math.hypot(dx - a.ux * t, dz - a.uz * t) < margin) return true;
+  }
+  return false;
 };
 for (let k = buildings.length - 1; k >= 0; k--) if (onAirfield(buildings[k].x, buildings[k].z)) buildings.splice(k, 1);
 const roads = towns.slice(1).map((t, i) => [towns[i], t]);
 
 const clouds = [];
-for (let i = 0; i < 160; i++) {
-  const cx = (rnd() * 2 - 1) * 4000, cz = (rnd() * 2 - 1) * 4000, cy = 250 + rnd() * 450 + (REGION ? 0.75 * naturalAt(cx, cz) : 0);
+for (let i = 0; i < Math.round(160 * WS * WS); i++) {
+  const cx = (rnd() * 2 - 1) * 4000 * WS, cz = (rnd() * 2 - 1) * 4000 * WS, cy = 250 + rnd() * 450 + (REGION ? 0.75 * naturalAt(cx, cz) : 0);
   const n = 3 + Math.floor(rnd() * 3), size = 40 + rnd() * 60;
   for (let j = 0; j < n; j++) {
     clouds.push({
@@ -3629,8 +3693,8 @@ function update(dt) {
       else {
         c.flownKm = (c.flownKm || 0) + p.speed * dt * cruiseX() / 1000;
         p.fuel = Math.min(1, p.fuel + (0.0011 * p.throttle + 0.00015) * dt);
-        if (Math.abs(p.pos[0]) > 5200) p.pos[0] *= -0.9;
-        if (Math.abs(p.pos[2]) > 5200) p.pos[2] *= -0.9;
+        if (Math.abs(p.pos[0]) > 5200 * WS) p.pos[0] *= -0.9;
+        if (Math.abs(p.pos[2]) > 5200 * WS) p.pos[2] *= -0.9;
         if (c.flownKm >= c.km - 20) arriveLonghaul();
       }
     }
@@ -4113,7 +4177,7 @@ function render() {
 
   // rivers: winding blue ribbons across the land, kept clear of the airfields
   for (const r of RIVERS) {
-    for (let z = -6000; z < 6000; z += 90) {
+    for (let z = -TER_HALF; z < TER_HALF; z += 90) {
       const xa = riverX(r, z), xb = riverX(r, z + 90);
       const mx = (xa + xb) / 2, mz = z + 45, dist = Math.hypot(mx - eye[0], mz - eye[2]);
       if (dist > FOG_END || nearField(mx, mz)) continue;
@@ -5000,7 +5064,7 @@ void main() {
   float spec = 0.0;
   if (h < uWater + 0.15) {
     // water. Its colour comes from how far it is from the shore: sandy turquoise in the shallows, deep blue far out.
-    float sd = texture2D(uMap, clamp((xz + 6000.0) / 12000.0, 0.0, 1.0)).a;     // 0 at the shore, 1 at 600 m
+    float sd = texture2D(uMap, clamp((xz + ${TER_HALF.toFixed(1)}) / ${(2 * TER_HALF).toFixed(1)}, 0.0, 1.0)).a;     // 0 at the shore, 1 at 600 m
     float depth = smoothstep(0.02, 0.55, sd);
     // three layers of waves moving in different directions; the open water has bigger waves than a sheltered shallows
     float amp = mix(0.10, 0.55, depth) * (1.0 - 0.6 * far);
@@ -5031,7 +5095,7 @@ void main() {
     vec2 q = xz + 70.0 * vec2(vn(xz / 200.0), vn(xz / 200.0 + 9.0));     // wobble the patch borders
     vec2 cell = floor(q / 125.0);
     // the forest map (made on the CPU, so the trees stand where the forest floor is)
-    vec4 fm = texture2D(uMap, clamp((xz + 6000.0) / 12000.0, 0.0, 1.0));
+    vec4 fm = texture2D(uMap, clamp((xz + ${TER_HALF.toFixed(1)}) / ${(2 * TER_HALF).toFixed(1)}, 0.0, 1.0));
     float forest = smoothstep(0.32, 0.55, fm.r + (vn(xz * 0.045) - 0.5) * 0.3);
     float macro = fbm(xz / 650.0);
     vec3 base = mix(vec3(0.27, 0.49, 0.23), vec3(0.22, 0.43, 0.19), macro);
@@ -5160,12 +5224,12 @@ void main() {
 // ---------- trees in WebGL: a forest map shared by the ground and the trees, real 3D conifers and broadleaf trees near the
 // plane, and cut-out billboards farther away. Tens of thousands of trees, with wind in the crowns.
 function buildForestMap() {
-  const SZ = 256, tex = new Uint8Array(SZ * SZ * 4), heights = new Float32Array(SZ * SZ);
+  const SZ = Math.round(256 * WS), tex = new Uint8Array(SZ * SZ * 4), heights = new Float32Array(SZ * SZ);
   const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   const treeLine = LAND.rockH > 9000 ? 650 : LAND.rockH * 0.95;
   for (let tz = 0; tz < SZ; tz++) {
     for (let tx = 0; tx < SZ; tx++) {
-      const x = (tx + 0.5) / SZ * 12000 - 6000, z = (tz + 0.5) / SZ * 12000 - 6000;
+      const x = (tx + 0.5) / SZ * (2 * TER_HALF) - TER_HALF, z = (tz + 0.5) / SZ * (2 * TER_HALF) - TER_HALF;
       const h = terrainAt(x, z);
       heights[tz * SZ + tx] = h;
       const nx = terrainAt(x + 20, z) - terrainAt(x - 20, z), nz = terrainAt(x, z + 20) - terrainAt(x, z - 20), ny = 40 / Math.hypot(nx, 40, nz);
@@ -5181,7 +5245,7 @@ function buildForestMap() {
   }
   // how far each water texel is from the nearest land (a two-pass distance sweep), up to 600 m, kept in the alpha channel:
   // the water is shallow and bright near the shore, deep and dark far from it
-  const texM = 12000 / SZ, INF = 1e6, dist = new Float32Array(SZ * SZ);
+  const texM = 2 * TER_HALF / SZ, INF = 1e6, dist = new Float32Array(SZ * SZ);
   for (let i = 0; i < SZ * SZ; i++) dist[i] = heights[i] <= WATER + 0.2 ? INF : 0;
   const D = 1, DD = 1.414;
   for (let j = 0; j < SZ; j++) for (let i = 0; i < SZ; i++) {
@@ -5204,7 +5268,7 @@ function buildTreeData(map) {
   const SZ = map.SZ, tex = map.tex;
   const chan = (a, b, c) => tex[(clamp(b, 0, SZ - 1) * SZ + clamp(a, 0, SZ - 1)) * 4 + c] / 255;
   const sample = (x, z, c) => {
-    const fx = clamp((x + 6000) / 12000 * SZ - 0.5, 0, SZ - 1.001), fz = clamp((z + 6000) / 12000 * SZ - 0.5, 0, SZ - 1.001);
+    const fx = clamp((x + TER_HALF) / (2 * TER_HALF) * SZ - 0.5, 0, SZ - 1.001), fz = clamp((z + TER_HALF) / (2 * TER_HALF) * SZ - 0.5, 0, SZ - 1.001);
     const i = Math.floor(fx), j = Math.floor(fz), u = fx - i, v = fz - j;
     return (chan(i, j, c) * (1 - u) + chan(i + 1, j, c) * u) * (1 - v) + (chan(i, j + 1, c) * (1 - u) + chan(i + 1, j + 1, c) * u) * v;
   };
@@ -5221,13 +5285,13 @@ function buildTreeData(map) {
     return Math.hypot(x - a.x - dx * t, z - a.z - dz * t) < 24;
   });
   const nearRiver = (x, z) => RIVERS.some(r => Math.abs(x - riverX(r, z)) < 40);
-  const NC = 12, CH = 1000;   // 12 x 12 chunks of 1 km
+  const NC = Math.round(12 * WS), CH = 1000;   // chunks of 1 km
   const conif = Array.from({ length: NC * NC }, () => []), broad = Array.from({ length: NC * NC }, () => []);
   const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1 })[REGION.id] : 0.45;
-  const STEP = 23, G = Math.floor(12000 / STEP);
+  const STEP = 23, G = Math.floor(2 * TER_HALF / STEP);
   for (let gi = 0; gi < G; gi++) {
     for (let gj = 0; gj < G; gj++) {
-      const x = -6000 + (gi + hash2(gi, gj + 71)) * STEP, z = -6000 + (gj + hash2(gi + 17, gj)) * STEP;
+      const x = -TER_HALF + (gi + hash2(gi, gj + 71)) * STEP, z = -TER_HALF + (gj + hash2(gi + 17, gj)) * STEP;
       const d = sample(x, z, 0);
       const keep = d > 0.3 ? hash2(gi * 7 + 3, gj * 11) < Math.min(0.92, 0.35 + d * 0.8) : (sample(x, z, 2) > 0.6 && hash2(gi * 13, gj * 3) < 0.01);
       if (!keep || nearBuilding(x, z) || nearRoad(x, z) || nearRiver(x, z)) continue;
@@ -5235,7 +5299,7 @@ function buildTreeData(map) {
       if (y < WATER + 2) continue;
       const r1 = hash2(gi + 5, gj * 9 + 1), r2 = hash2(gi * 3 + 1, gj + 8), r3 = hash2(gi * 5 + 2, gj * 7), rot = hash2(gi * 2, gj * 2 + 1) * 6.2832;
       const isConif = r1 < coniferFrac + (y > 300 ? 0.2 : 0);
-      const ci = clamp(Math.floor((z + 6000) / CH), 0, NC - 1) * NC + clamp(Math.floor((x + 6000) / CH), 0, NC - 1);
+      const ci = clamp(Math.floor((z + TER_HALF) / CH), 0, NC - 1) * NC + clamp(Math.floor((x + TER_HALF) / CH), 0, NC - 1);
       (isConif ? conif : broad)[ci].push(x, y - 0.3, z, 0.75 + r2 * 0.8, rot, r3, isConif ? 1 : 0);
     }
   }
@@ -5249,7 +5313,7 @@ function buildTreeData(map) {
     data.set(conif[c], at * 7); at += conif[c].length / 7;
     const bs = at;
     data.set(broad[c], at * 7); at += broad[c].length / 7;
-    chunks.push({ cx: -6000 + (ci + 0.5) * CH, cz: -6000 + (cj + 0.5) * CH, cs, cn: bs - cs, bs, bn: at - bs });
+    chunks.push({ cx: -TER_HALF + (ci + 0.5) * CH, cz: -TER_HALF + (cj + 0.5) * CH, cs, cn: bs - cs, bs, bn: at - bs });
   }
   return { data, total, chunks };
 }
@@ -5566,7 +5630,7 @@ function initTerrainGL() {
     const N = TER_N, TH = new Float32Array(N * N);
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) TH[i * N + j] = terrainAt(i * TER_STEP - TER_HALF, j * TER_STEP - TER_HALF);
     const at = (i, j) => TH[clamp(i, 0, N - 1) * N + clamp(j, 0, N - 1)];
-    const NC = 8, CS = 50, VS = CS + 1, chunks = [];
+    const CS = 50, NC = Math.round((N - 1) / CS), VS = CS + 1, chunks = [];
     for (let cj = 0; cj < NC; cj++) {
       for (let ci = 0; ci < NC; ci++) {
         const data = new Float32Array(VS * VS * 6);
