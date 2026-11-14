@@ -4392,7 +4392,7 @@ function trafficStep(a, i, dt, slot) {
     T.way = { p: at(TAXI, standAlong), rev: true, v: 2.5 };
     T.phase = 'push';
   } else if (T.phase === 'push') {
-    if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, T.dir * (half - 80)), v: 15 }; T.phase = 'taxi'; trafficCall(a, i, `${P.call}, TAXI TO RUNWAY ${rwyNum((T.dir > 0 ? h + Math.PI : h) * RAD2DEG)}`); }
+    if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, T.dir * (half - 80 - 55 * slot)), v: 15 }; T.phase = 'taxi'; trafficCall(a, i, `${P.call}, TAXI TO RUNWAY ${rwyNum((T.dir > 0 ? h + Math.PI : h) * RAD2DEG)}`); }
   } else if (T.phase === 'taxi') {
     if (trafficFollow(P, T.way, dt)) { if (a.rw != null && a.rw !== slot) return; if (playerOnRunway(a)) { if (!T.heldSaid) { T.heldSaid = true; trafficCall(a, i, `${P.call}, HOLDING SHORT, ${plane.callsign || 'TRAFFIC'} ON THE RUNWAY`); } return; } T.heldSaid = false; a.rw = slot; T.way = { p: at(0, T.dir * (half - 70)), v: 7 }; T.phase = 'lineup'; }
   } else if (T.phase === 'lineup') {
@@ -4462,6 +4462,7 @@ function trafficUpdate(dt) {
     if (a.blocked) continue;
     trafficStep(a, i, dt, 0);
     if (a.stands && a.stands.length > 1) trafficStep(a, i, dt, 1);
+    if (a.stands && a.stands.length > 2) trafficStep(a, i, dt, 2);   // a busy airport has a third plane in the queue
   }
 }
 // ---------- sky traffic: airliners flying real routes between the airports, climbing out, cruising and descending to the next runway
