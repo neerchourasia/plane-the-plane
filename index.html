@@ -12,6 +12,7 @@
   #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 58%,rgba(0,0,0,0.26) 100%)}
   #soundBtn{position:fixed;top:30px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #soundBtn:hover,#gfxBtn:hover{background:rgba(0,0,0,.65)}
+  @media (max-height: 520px) { #help { display: none; } #soundBtn, #gfxBtn { padding: 4px 8px; font-size: 11px; } #gfxBtn { top: 56px; } }
   #gfxBtn{position:fixed;top:64px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -5173,7 +5174,7 @@ function drawHUD(now) {
   ctx.textAlign = 'left';
   ctx.fillText('KT', 28, H / 2 + 118);
   // reference speeds for this plane and flap setting: stall, rotate (take-off) and approach
-  if (!p.model.heli) {
+  if (!p.model.heli && !isCompact()) {
     const vs = stallSpeed(p) * 1.944;
     ctx.fillStyle = p.speed < stallSpeed(p) * 1.15 && !p.onGround ? '#ff6b6b' : '#8fb3c9';
     ctx.fillText('VS ' + Math.round(vs), 28, H / 2 + 134);
@@ -5243,8 +5244,11 @@ function drawHUD(now) {
 // ---------- minimap: north up, to scale, with flight trail
 const trail = [];
 let lastTrailAt = 0;
+// a short screen (a phone held sideways): smaller panels, and the minimap moves to the left so the touch buttons stay clear
+const isCompact = () => H < 520;
 function drawMinimap() {
-  const S = Math.min(460, Math.round(H * 0.45)), R = 1500, ox = W - S - 16, oy = H - S - 16, sc = S / 2 / R;
+  const compact = isCompact();
+  const S = compact ? 108 : Math.min(460, Math.round(H * 0.45)), R = 1500, ox = compact ? 10 : W - S - 16, oy = compact ? 128 : H - S - 16, sc = S / 2 / R;
   const p = plane, m = p.model;
   const cx = ox + S / 2, cy = oy + S / 2;
   const toMap = (x, z) => [cx + (x - p.pos[0]) * sc, cy - (z - p.pos[2]) * sc];
@@ -5418,7 +5422,7 @@ function drawMinimap() {
 // Aircraft systems under the model panel: gear, flaps, autopilot, lights, sound, height, speed, weather and camera.
 function drawChecklist() {
   const p = plane;
-  if (!pilot || !checklistOn || homeOpen || p.crashed || !p.onGround || p.speed > 4 || p.model.heli) return;
+  if (!pilot || !checklistOn || homeOpen || p.crashed || !p.onGround || p.speed > 4 || p.model.heli || isCompact()) return;
   const big = (CAPACITY[p.model.name] || 0) > 20;
   const items = [
     ['FUEL OVER 25%', p.fuel > 0.25],
@@ -5457,7 +5461,7 @@ function drawStatus() {
   const agl = (p.pos[1] - terrainAt(p.pos[0], p.pos[2]) - (p.gear ? p.model.gearLen : 0)) * 3.281;
   const gs = Math.hypot(p.vel[0] + wind[0], p.vel[2] + wind[1]) * 1.944;
   const rain = rainLevel();
-  const rows = [
+  let rows = [
     ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
     ...(p.leak ? [['FUEL LEAK', 'YES', '#ff6b6b']] : []),
     ...(p.fire != null ? [['FIRE', Math.max(0, 30 - Math.floor(p.fire)) + ' s', '#ff3b30']] : []),
@@ -5474,7 +5478,9 @@ function drawStatus() {
     ['FPS', String(Math.round(fps)), '#8fb3c9'],
     ['VIEW', VIEW_NAMES[view], '#8fb3c9']
   ];
-  panel(X, Y, 230, rows.length * ROW + 16);
+  // on a short screen only the warnings are listed
+  if (isCompact()) rows = rows.filter(([l]) => ['ENGINE', 'FIRE', 'FUEL LEAK', 'ICING', 'WEAR'].includes(l));
+  if (rows.length) panel(X, Y, 230, rows.length * ROW + 16);
   setFont(12);
   ctx.textBaseline = 'top';
   rows.forEach(([label, value, col], i) => {
