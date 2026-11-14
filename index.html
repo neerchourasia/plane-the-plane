@@ -559,6 +559,29 @@ const MODELS = [
       engines: [],
       rotor: 5.4, heli: true
     }
+  },
+  {
+    name: 'Business Jet', level: 3, price: 9000, thrust: 9, stall: 29, drag: 0.00016,
+    spec: {
+      win: [0.2, 0.78], belly: [180, 186, 198], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 15.6, r: 0.9, nose: 0.16, tail: 0.22, body: [236, 238, 244], stripe: [196, 150, 40],
+      wing: { y: -0.4, z: 0.6, cr: 2.6, ct: 0.9, sweep: 0.5, span: 8.2, dih: 0.06, col: [200, 206, 216], winglet: 0.9 },
+      tail: { y: 2.2, z: -6.4, cr: 2.2, ct: 0.9, sweep: 0.55, span: 3.6 },
+      fin: { z: -5.8, cr: 3.2, ct: 1.2, h: 3.0, sweep: 0.65, col: [196, 150, 40] },
+      engines: [{ s: 2.1, drop: 0.2, r: 0.5, len: 2.0, fwd: -2.6 }]
+    }
+  },
+  {
+    name: 'Turboprop', level: 2, price: 6500, thrust: 7, stall: 21, drag: 0.0007,
+    spec: {
+      win: [0.4, 0.74], engineCol: [64, 68, 76],
+      len: 14.2, r: 0.95, nose: 0.15, tail: 0.24, body: [244, 246, 250], stripe: [30, 110, 160],
+      wing: { y: -0.35, z: 0.5, cr: 2.4, ct: 1.2, sweep: 0.05, span: 8.2, dih: 0.05, col: [226, 230, 238] },
+      tail: { y: 2.0, z: -5.6, cr: 2.0, ct: 1.0, sweep: 0.35, span: 3.4 },
+      fin: { z: -5.2, cr: 2.8, ct: 1.1, h: 2.8, sweep: 0.55, col: [30, 110, 160] },
+      engines: [{ at: [0, 0.1, 7.1], r: 0.7, len: 2.0 }],
+      prop: true
+    }
   }
 ];
 
@@ -2251,7 +2274,7 @@ function drawRace() {
 }
 
 // ---------- airline career: put planes you own on routes between the real airports; they earn while you are away
-const CAPACITY = { Seaplane: 5, Helicopter: 6, Trainer: 2, 'Cessna 172': 3, 'Sport Jet': 8, 'Embraer E175': 76, '737': 160, Airliner: 180, '757': 200, '767': 220, '787': 240, A330: 250, A350: 300, '777X': 350, '747': 400, A380: 500, 'F-16': 0, Concorde: 100 };
+const CAPACITY = { Seaplane: 5, Helicopter: 6, Trainer: 2, 'Cessna 172': 3, 'Sport Jet': 8, 'Embraer E175': 76, '737': 160, Airliner: 180, '757': 200, '767': 220, '787': 240, A330: 250, A350: 300, '777X': 350, '747': 400, A380: 500, 'F-16': 0, Concorde: 100, 'Business Jet': 12, Turboprop: 9 };
 const FLEET_CAP_HOURS = 8;   // a plane earns for at most 8 hours before you collect
 const fleetSlots = () => 1 + Math.floor(careerLevel() / 2);
 const airportBy = code => AIRPORTS.find(a => a.code === code);
@@ -2291,6 +2314,11 @@ function renderAirline() {
     const btn = document.createElement('button');
     btn.textContent = 'Remove';
     btn.onclick = () => { fleet.splice(idx, 1); writeSave(); renderHangar(); };
+    const paint = document.createElement('select');
+    paint.title = 'Airline paint';
+    PARK_COLS.forEach((c, k) => { const o = document.createElement('option'); o.value = k; o.textContent = AIRLINES[k] + ' livery'; paint.append(o); });
+    paint.value = f.paint != null ? f.paint : 0;
+    paint.onchange = () => { f.paint = Number(paint.value); writeSave(); };
     const hire = document.createElement('button');
     if (f.pilot) { hire.textContent = f.pilot + ' flies it (+30%)'; hire.disabled = true; }
     else {
@@ -2300,7 +2328,7 @@ function renderAirline() {
         save.coins -= pilotCost(f); f.pilot = PILOT_NAMES[Math.floor(Math.random() * PILOT_NAMES.length)]; writeSave(); renderHangar();
       };
     }
-    row.append(label, hire, btn);
+    row.append(label, paint, hire, btn);
     box.append(row);
   }
   const total = Math.floor(fleet.reduce((a, f) => a + fleetAccrued(f), 0));
@@ -4233,7 +4261,7 @@ function update(dt) {
 }
 
 // ---------- parked planes: each airport with an apron has a few planes standing on it, nose toward the terminal
-const PARK_POOLS = { big: ['Airliner', '777X', '737', '787', '747', 'A330', 'A350', 'A380', '757', '767', 'Embraer E175', '737', 'A350'], mid: ['737', 'Embraer E175', 'Airliner', '757', 'Sport Jet', 'Embraer E175'], small: ['Cessna 172', 'Trainer', 'Sport Jet', 'Cessna 172'] };
+const PARK_POOLS = { big: ['Airliner', '777X', '737', '787', '747', 'A330', 'A350', 'A380', '757', '767', 'Embraer E175', '737', 'A350'], mid: ['737', 'Embraer E175', 'Airliner', '757', 'Sport Jet', 'Embraer E175', 'Business Jet', 'Turboprop'], small: ['Cessna 172', 'Trainer', 'Sport Jet', 'Cessna 172', 'Turboprop'] };
 const PARK_COLS = [[200, 30, 40], [20, 70, 160], [240, 170, 20], [20, 130, 80], [110, 40, 140], [30, 30, 36], [230, 110, 20]];
 function standsOf(a, idx) {
   if (a.stands) return a.stands;
@@ -4400,7 +4428,7 @@ function skyFlight(k, t) {
       const a = airportBy(f.from), b = airportBy(f.to), m = MODELS[f.model];
       if (!a || !b || !m) return null;
       const dist = Math.hypot(b.x - a.x, b.z - a.z);
-      r = skyRoutes[k] = { f, m, a, b, dist, dur: dist / SKY_SPEED, cycle: dist / SKY_SPEED + 40, off: hash2(k, 3105) * 300, cruise: 900 + hash2(k, 3106) * 300, yaw: Math.atan2(b.x - a.x, b.z - a.z), paint: { body: m.spec.body, stripe: [255, 196, 40], wing: m.spec.wing.col, fin: [255, 196, 40] } };
+      r = skyRoutes[k] = { f, m, a, b, dist, dur: dist / SKY_SPEED, cycle: dist / SKY_SPEED + 40, off: hash2(k, 3105) * 300, cruise: 900 + hash2(k, 3106) * 300, yaw: Math.atan2(b.x - a.x, b.z - a.z), paint: { body: m.spec.body, stripe: PARK_COLS[f.paint != null ? f.paint : 2], wing: m.spec.wing.col, fin: PARK_COLS[f.paint != null ? f.paint : 2] } };
     }
   } else if (!r) {
     const pool = PARK_POOLS.big, m = MODELS.find(q => q.name === pool[Math.floor(hash2(k, 3001) * pool.length)]);
@@ -4410,6 +4438,7 @@ function skyFlight(k, t) {
     const col = PARK_COLS[Math.floor(hash2(k, 3004) * PARK_COLS.length)];
     r = skyRoutes[k] = { m, a, b, dist, dur: dist / SKY_SPEED, cycle: dist / SKY_SPEED + 40, off: hash2(k, 3005) * 600, cruise: 700 + hash2(k, 3006) * 700, yaw: Math.atan2(b.x - a.x, b.z - a.z), paint: { body: m.spec.body, stripe: col, wing: m.spec.wing.col, fin: col } };
   }
+  if (r.f) { const col = PARK_COLS[r.f.paint != null ? r.f.paint : 2]; r.paint.stripe = col; r.paint.fin = col; }   // the airline paint can change at any time
   const c = (t + r.off) % r.cycle;
   if (c > r.dur) return null;   // on the ground between flights
   const f = c / r.dur, ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
