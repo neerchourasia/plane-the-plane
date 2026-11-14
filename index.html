@@ -92,6 +92,18 @@
 #account h3 { margin: 16px 0 4px; font-size: 15px; }
 #account .danger { background: #3a1a1a; color: #ffb3b3; border: 1px solid #7a3030; }
 </style>
+<script>
+// The land: a real region's height map (terrain-<name>.js, real elevation data) or the classic made-up land.
+var REGION_ID = 'classic';
+try { REGION_ID = localStorage.getItem('plane-the-plane-region') || 'classic'; } catch (e) { /* storage blocked */ }
+if (!/^(alps|canyon|hawaii|rainier)$/.test(REGION_ID)) REGION_ID = 'classic';
+if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID + '.js"><\/script>');
+</script>
+<style>
+#regions { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(4,8,18,0.9); z-index: 22; }
+#regions .card { background: #0c1626; border: 1px solid #2a3d5c; border-radius: 10px; padding: 18px 22px; color: #e8fff5; width: min(560px, 94vw); max-height: 92vh; overflow: auto; }
+#regions .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #1f2f47; }
+</style>
 </head>
 <body>
 <canvas id="c"></canvas>
@@ -172,6 +184,15 @@
     <button id="acctClose">Close</button>
   </div>
 </div>
+<div id="regions">
+  <div class="card">
+    <h2>Region</h2>
+    <p class="hint">Choose the land you fly over. The real regions use real elevation data, so the mountains, valleys and coasts are the real ones. Changing region reloads the game.</p>
+    <div id="regionList"></div>
+    <p class="hint" style="font-size:11px">Elevation: NASA SRTM and other open data, via AWS Terrain Tiles. Heights are scaled down for the game.</p>
+    <button id="regionsClose">Close</button>
+  </div>
+</div>
 <div id="teleport">
   <div class="card">
     <h2>Teleport</h2>
@@ -192,6 +213,7 @@
       <button id="homeWorld">World map</button>
       <button id="homeSchool">Flight school</button>
       <button id="homeRaces">Air races</button>
+      <button id="homeRegion">Region</button>
       <button id="homeAccount">Account</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
@@ -898,6 +920,24 @@ function naturalAt(x, z) {
   const hi = g(i, j + 1) + (g(i + 1, j + 1) - g(i, j + 1)) * u;
   return lo + (hi - lo) * v;
 }
+// A real region: its height map (401 x 401 samples, 30 m apart) replaces the made-up land.
+const REGION = typeof REGION_DATA !== 'undefined' && REGION_DATA.n === TER_N ? REGION_DATA : null;
+if (REGION) {
+  const bin = atob(REGION.data);
+  for (let i = 0; i < TER_N * TER_N; i++) TER_GRID[i] = (bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8)) / REGION.s16;
+}
+// the height of the home runway: the average along it, so the flat strip needs the least cutting and filling
+const HOME_Y = REGION ? Math.round([-200, 0, 200, 400, 600, 800, 1000].reduce((a, z) => a + naturalAt(0, z), 0) / 7) : 0;
+START.pos[1] = HOME_Y;
+// colours and limits that suit each land: where bare rock and snow begin
+const LAND = REGION
+  ? ({ alps: { rockH: 450, snowH: 720, rock: [124, 118, 110] },
+       rainier: { rockH: 520, snowH: 780, rock: [112, 108, 104], tint: [46, 98, 56], tintK: 0.45 },
+       canyon: { rockH: 99999, snowH: 99999, rock: [168, 100, 64], tint: [184, 136, 98], tintK: 0.6 },
+       hawaii: { rockH: 99999, snowH: 99999, rock: [74, 66, 62], tint: [56, 120, 62], tintK: 0.4 } })[REGION.id]
+  : { rockH: 350, snowH: 700, rock: ROCK };
+// true on steep ground, so houses are not put on a cliff
+const steep = (x, z) => Math.abs(naturalAt(x + 40, z) - naturalAt(x - 40, z)) > 30 || Math.abs(naturalAt(x, z + 40) - naturalAt(x, z - 40)) > 30;
 // Pads are flat areas: inside one the ground sits at the pad's height, and it blends back outside.
 // The runway is always a pad. Offers and the active contract become pads when the hangar lists them.
 // Real airports: names, codes, runway headings (degrees, clockwise from north) and runway lengths (metres).
@@ -947,7 +987,13 @@ const AIRPORTS = [];
     const hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
     let len = Math.min(a.len, i < 12 ? 2600 : 2000), spot = null;
     // try the usual gap first; if the world is too full, allow a smaller gap, then a shorter runway
-    for (const [gap, shrink] of [[450, 1], [300, 1], [180, 1], [180, 0.75], [120, 0.6]]) {
+    // on a real region the runway must lie on fairly flat, dry ground: the allowed height difference grows as the search widens
+    const rough = (x, z, hl) => {
+      let lo = 1e9, hi = -1e9;
+      for (let t = -hl; t <= hl; t += 200) { const h = naturalAt(x + ux * t, z + uz * t); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+      return lo < WATER + 1.5 ? 1e9 : hi - lo;
+    };
+    for (const [gap, shrink, flatLimit] of [[450, 1, 40], [300, 1, 70], [180, 1, 120], [180, 0.75, 180], [120, 0.6, 320]]) {
       len = Math.min(a.len, i < 12 ? 2600 : 2000) * shrink;
       const hl = len / 2;
       for (let t = 0; t < 1500 && !spot; t++) {
@@ -955,6 +1001,7 @@ const AIRPORTS = [];
         const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
         const pts = spread(x, z, ux, uz, hl);
         if (pts.some(([px, pz]) => Math.abs(px) > 5500 || Math.abs(pz) > 5500)) continue;
+        if (REGION && rough(x, z, hl) > flatLimit) continue;
         if (pts.some(q => homeGap(q) < 500)) continue;
         if (AIRPORTS.some(o => spread(o.x, o.z, Math.sin(o.hdgRad), Math.cos(o.hdgRad), o.len / 2).some(q => pts.some(r => Math.hypot(q[0] - r[0], q[1] - r[1]) < gap)))) continue;
         spot = { x, z };
@@ -967,7 +1014,7 @@ const AIRPORTS = [];
   });
 })();
 function refreshPads() {
-  pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: 0 }];
+  pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: HOME_Y }];
   for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, 20], elev: naturalAt(a.x, a.z) });
   for (const pad of pads) { pad.sn = Math.sin(pad.hdg); pad.cs = Math.cos(pad.hdg); pad.reach2 = (pad.half[0] + PAD_BLEND) ** 2 + (pad.half[1] + PAD_BLEND) ** 2; }
 }
@@ -1909,7 +1956,7 @@ function guideTarget() {
   const d = save.daily && save.daily.date === today() ? save.daily : null;
   const dailyOpen = id => !!d && dailyPicks(d.date).some(m => m.id === id) && !d.done.includes(id);
   if (race && race.count <= 0) { const g = race.def.pts[race.gate]; return { pos: g.c, label: `GATE ${race.gate + 1}` }; }
-  if (lesson && lesson.i === 2 && lesson.step >= 1) return { pos: [0, 0, -200], label: 'RUNWAY' };
+  if (lesson && lesson.i === 2 && lesson.step >= 1) return { pos: [0, HOME_Y, -200], label: 'RUNWAY' };
   const c = save.contract;
   if (c && !cruise) {
     let label;
@@ -1986,6 +2033,38 @@ function drawGuide() {
   ctx.textAlign = 'start';
 }
 
+// ---------- region: pick the land. Real regions use real elevation data; the choice is kept in this browser.
+const REGION_LIST = [
+  { id: 'classic', name: 'Classic', text: 'Made-up hills, lakes and mountains around the home airfield.' },
+  { id: 'alps', name: 'Swiss Alps, Interlaken', text: 'Two blue lakes, deep valleys and snowy peaks above the Bernese Oberland.' },
+  { id: 'canyon', name: 'Grand Canyon, South Rim', text: 'A flat forested rim, then a huge red canyon dropping away below you.' },
+  { id: 'hawaii', name: 'Hawaii, Kilauea south coast', text: 'Volcanic slopes running down to cliffs and the open Pacific.' },
+  { id: 'rainier', name: 'Mount Rainier', text: 'Forested ridges climbing toward the huge snow-capped volcano.' }
+];
+let regionsOpen = false;
+function toggleRegions() {
+  regionsOpen = !regionsOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('regions').style.display = regionsOpen ? 'flex' : 'none';
+  if (regionsOpen) renderRegions();
+}
+function renderRegions() {
+  const box = document.getElementById('regionList');
+  box.innerHTML = '';
+  for (const r of REGION_LIST) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    const label = document.createElement('span');
+    label.textContent = `${r.name}${r.id === REGION_ID ? '  (current)' : ''} - ${r.text}`;
+    const btn = document.createElement('button');
+    btn.textContent = r.id === REGION_ID ? 'Current' : 'Fly here';
+    btn.disabled = r.id === REGION_ID;
+    btn.onclick = () => { storeSet('plane-the-plane-region', r.id); location.reload(); };
+    row.append(label, btn);
+    box.append(row);
+  }
+}
+
 // ---------- wildlife and traffic
 // Flocks of birds drift over the map. A bird strike rattles you but does not crash the plane.
 // Airliners fly wide loops high above; flying into one is a mid-air collision.
@@ -2000,6 +2079,7 @@ const AIRLINERS = Array.from({ length: 3 }, (_, i) => ({
   r: 900 + hash2(i, 413) * 600, y: 380 + hash2(i, 414) * 200,
   w: 0.025 * (i % 2 ? 1 : -1), ph: hash2(i, 415) * 6.28, col: ['#f2f5f8', '#f6e3b3', '#d9e8f5'][i]
 }));
+if (REGION) { for (const f of FLOCKS) f.y += naturalAt(f.cx, f.cz); for (const a of AIRLINERS) a.y += 700; }
 // position and direction of travel on a circle, for a flock or an airliner
 function onCircle(f, t) {
   const a = f.ph + f.w * t, sg = Math.sign(f.w);
@@ -2223,6 +2303,7 @@ for (let i = 0; i < 600; i++) {
   const h = tall ? 180 + rnd() * 200 : 15 + rnd() * 70;
   const s = 120 + rnd() * 70;
   const y = terrainAt(x, z);
+  if (REGION && (y < WATER + 2 || steep(x, z))) continue;
   buildings.push({ x, z, w, d, h, y, top: y + h, col: [s, s * (0.9 + rnd() * 0.1), s * (0.85 + rnd() * 0.15)] });
 }
 
@@ -2238,6 +2319,7 @@ for (let t = 0; t < 9; t++) {
     const k = Math.max(0, 1 - Math.hypot(x - tx, z - tz) / 300);
     const w = 18 + rnd() * 30, d = 18 + rnd() * 30, h = 14 + 20 * k + rnd() * 120 * k;
     const y = terrainAt(x, z), s = 150 + rnd() * 60;
+    if (REGION && (y < WATER + 2 || steep(x, z))) continue;
     buildings.push({ x, z, w, d, h, y, top: y + h, col: [s, s * 0.95, s * 0.9] });
   }
 }
@@ -2245,7 +2327,7 @@ const roads = towns.slice(1).map((t, i) => [towns[i], t]);
 
 const clouds = [];
 for (let i = 0; i < 160; i++) {
-  const cx = (rnd() * 2 - 1) * 4000, cz = (rnd() * 2 - 1) * 4000, cy = 250 + rnd() * 450;
+  const cx = (rnd() * 2 - 1) * 4000, cz = (rnd() * 2 - 1) * 4000, cy = 250 + rnd() * 450 + (REGION ? 0.75 * naturalAt(cx, cz) : 0);
   const n = 3 + Math.floor(rnd() * 3), size = 40 + rnd() * 60;
   for (let j = 0; j < n; j++) {
     clouds.push({
@@ -2336,6 +2418,7 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.code === 'KeyY' && !e.repeat && pilot && !homeOpen && !chatOpen) { e.preventDefault(); return openChat(); }
+  if (regionsOpen && e.code === 'Escape') return toggleRegions();
   if (accountOpen && e.code === 'Escape') return toggleAccount();
   if (racesOpen && e.code === 'Escape') return toggleRaces();
   if (schoolOpen && e.code === 'Escape') return toggleSchool();
@@ -3139,7 +3222,7 @@ function updateHeli(dt) {
 
 function update(dt) {
   const p = plane;
-  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen || accountOpen) return;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen || accountOpen || regionsOpen) return;
   const m = p.model;
   windT += dt;
   fogEnd = FOG_END - fogLevel() * 2800;
@@ -3578,14 +3661,15 @@ function render() {
         const field = fr < 0.22 ? [198, 178, 98] : fr < 0.42 ? [92, 152, 62] : fr < 0.56 ? [132, 100, 64] : fr < 0.7 ? [122, 170, 86] : null;
         if (field) base = mix(field, base, 0.15);
       }
+      if (LAND.tint && roll >= 0.12) base = mix(base, LAND.tint, LAND.tintK);   // the land's own colour: dry red soil, dark conifers, lush green
       base = mul(base, 0.94 + 0.12 * hash2(gx * 13 + 5, gz * 7 - 9));   // a little variation from cell to cell
       // only flat lake surfaces are water; ground that the runway pulls down is not
       const shore = corners.some(c => c[1] < WATER + 2.4);
       if (corners.every(c => Math.abs(c[1] - WATER) < 0.05)) base = [40, 94, 138];
       else if (shore) base = [212, 198, 150];                                           // a sandy beach along the water
-      base = mix(base, ROCK, clamp((0.84 - n[1]) / 0.1, 0, 1) * 0.75);                   // steep slopes show bare rock
-      base = mix(base, ROCK, clamp((h - 350) / 250, 0, 1) * 0.8);
-      base = mix(base, SNOW, clamp((h - 700) / 150, 0, 1));
+      base = mix(base, LAND.rock, clamp((0.84 - n[1]) / 0.1, 0, 1) * 0.75);              // steep slopes show bare rock
+      base = mix(base, LAND.rock, clamp((h - LAND.rockH) / 250, 0, 1) * 0.8);
+      base = mix(base, SNOW, clamp((h - LAND.snowH) / 150, 0, 1));
       const col = rgb(mix(mul(base, shadeFor(n) * L), mul(mix(HZ, [168, 196, 232], 0.32), L), fogAt(dist)));   // distant ground fades to a bluer haze
       const cam = corners.map(toCam);
       terrainItems.push({ d: dist, draw: () => drawPoly(cam, col) });
@@ -3594,7 +3678,7 @@ function render() {
 
   // runway, cut into 150 m pieces (surface, centre-line dashes and edge lines) that sort in with the terrain
   const runwayPiece = (z, z1) => {
-    const q = (x0, x1, za, zb) => [[x0, 0.05, za], [x1, 0.05, za], [x1, 0.05, zb], [x0, 0.05, zb]].map(toCam);
+    const q = (x0, x1, za, zb) => [[x0, HOME_Y + 0.05, za], [x1, HOME_Y + 0.05, za], [x1, HOME_Y + 0.05, zb], [x0, HOME_Y + 0.05, zb]].map(toCam);
     const parts = [[q(-RUNWAY.x, RUNWAY.x, z, z1), rgb(RUNWAY_COL)]];
     for (let s = RUNWAY.z0 + 20; s + 30 <= z1; s += 60) {
       if (s >= z) parts.push([q(-1, 1, s, s + 30), '#e8e8e8']);
@@ -4804,6 +4888,8 @@ document.getElementById('worldClose').onclick = toggleWorld;
 document.getElementById('schoolClose').onclick = toggleSchool;
 document.getElementById('racesClose').onclick = toggleRaces;
 document.getElementById('acctClose').onclick = toggleAccount;
+document.getElementById('regionsClose').onclick = toggleRegions;
+document.getElementById('homeRegion').onclick = () => { hideHome(); toggleRegions(); };
 document.getElementById('acctChange').onclick = changePassword;
 document.getElementById('acctDelete').onclick = deleteAccount;
 document.getElementById('homeAccount').onclick = () => { hideHome(); toggleAccount(); };
