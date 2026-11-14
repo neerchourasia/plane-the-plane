@@ -1657,9 +1657,21 @@ function bestEnd(ap, i) {
 }
 let radioText = '', radioUntil = 0;
 const radioQueue = [];
+// a radio call: a short crackle and a click, then the words in a flat spoken voice when the browser can speak
+function radioVoice(text) {
+  if (!soundOn || typeof speechSynthesis === 'undefined') return;
+  try {
+    playBurst(0.12, 0.12, 3000);
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.replace(/^[A-Z0-9]{3,4} TOWER:\s*/, '').toLowerCase());
+    u.rate = 1.15; u.pitch = 0.8; u.volume = 0.6;
+    speechSynthesis.speak(u);
+  } catch (e) { /* no speech */ }
+}
 function radio(text) {
   if (performance.now() < radioUntil) { if (radioQueue.length < 3 && !radioQueue.includes(text)) radioQueue.push(text); return; }
   radioText = text; radioUntil = performance.now() + 6000;
+  radioVoice(text);
 }
 let tower = null;   // the airport the plane is near: { i, code, cleared }
 function updateTower() {
@@ -1701,7 +1713,7 @@ function updateTower() {
   }
 }
 function drawRadio() {
-  if (performance.now() > radioUntil && radioQueue.length) { radioText = radioQueue.shift(); radioUntil = performance.now() + 6000; }
+  if (performance.now() > radioUntil && radioQueue.length) { radioText = radioQueue.shift(); radioUntil = performance.now() + 6000; radioVoice(radioText); }
   if (!radioText || performance.now() > radioUntil) return;
   ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
   const w = ctx.measureText(radioText).width + 24;
@@ -3474,6 +3486,7 @@ function toggleGear() {
   }
   p.gearTried = false;
   p.gear = !p.gear;
+  playBurst(0.35, 0.35, 220);   // the gear locking up or down
 }
 // Autopilot holds the heading and altitude it was engaged at, and only works in the air.
 // ILS autoland: with the gear down and a runway ahead, the autopilot follows the centre line and the 3 degree glide slope, cuts the power
@@ -5505,15 +5518,33 @@ function startAudio() {
     sgain.gain.value = 0;
     sosc.connect(sgain); sgain.connect(ac.destination);
     sosc.start();
-    audio = { ac, osc, gain, wgain, sgain };
+    // rain: hiss from the same kind of noise, higher pitched, and a jet roar: broad noise that swells with the throttle
+    const rsrc = ac.createBufferSource(), rfilt = ac.createBiquadFilter(), rgain = ac.createGain();
+    rsrc.buffer = wbuf; rsrc.loop = true; rsrc.playbackRate.value = 1.3;
+    rfilt.type = 'highpass'; rfilt.frequency.value = 2500;
+    rgain.gain.value = 0;
+    rsrc.connect(rfilt); rfilt.connect(rgain); rgain.connect(ac.destination);
+    rsrc.start();
+    const jsrc = ac.createBufferSource(), jfilt = ac.createBiquadFilter(), jgain = ac.createGain();
+    jsrc.buffer = wbuf; jsrc.loop = true; jsrc.playbackRate.value = 0.7;
+    jfilt.type = 'lowpass'; jfilt.frequency.value = 900;
+    jgain.gain.value = 0;
+    jsrc.connect(jfilt); jfilt.connect(jgain); jgain.connect(ac.destination);
+    jsrc.start();
+    audio = { ac, osc, gain, wgain, sgain, rgain, jgain, jfilt, wbuf };
   } catch (e) { /* no audio support: the sim runs silently */ }
 }
 function updateSound() {
   if (!audio) return;
   const t = audio.ac.currentTime;
   const on = soundOn && !plane.crashed && !hangarOpen;
-  audio.osc.frequency.setTargetAtTime(55 + 110 * plane.throttle, t, 0.1);
-  audio.gain.gain.setTargetAtTime(on && !plane.engineOut ? 0.02 + 0.08 * plane.throttle : 0, t, 0.1);
+  const jet = !plane.model.spec.prop && !plane.model.heli;
+  audio.osc.frequency.setTargetAtTime(jet ? 40 + 60 * plane.throttle : plane.model.heli ? 28 + 22 * plane.throttle : 55 + 110 * plane.throttle * (plane.model.thrust > 7 ? 0.8 : 1), t, 0.1);
+  audio.gain.gain.setTargetAtTime(on && !plane.engineOut ? (jet ? 0.012 : 0.02) + (jet ? 0.03 : 0.08) * plane.throttle : 0, t, 0.1);
+  audio.jgain.gain.setTargetAtTime(on && jet && !plane.engineOut ? 0.01 + 0.09 * plane.throttle * plane.throttle : 0, t, 0.15);
+  audio.jfilt.frequency.setTargetAtTime(500 + 1600 * plane.throttle, t, 0.2);
+  // rain on the airframe, louder in heavier rain; snow is quiet
+  audio.rgain.gain.setTargetAtTime(on && !snowingNow() ? 0.05 * rainLevel() : 0, t, 0.3);
   // wind rises with airspeed and in rain
   const airborne = on && !plane.onGround;
   const windLevel = airborne ? clamp(plane.speed / 120, 0, 1) * (0.6 + 0.4 * rainLevel()) : 0;
