@@ -979,7 +979,33 @@ const AIRPORT_DATA = [
   { code: 'MEX', name: 'Mexico City', hdg: 50, len: 3900 },
   { code: 'YYZ', name: 'Toronto Pearson', hdg: 50, len: 3390 },
   { code: 'MIA', name: 'Miami', hdg: 80, len: 3200 },
-  { code: 'AKL', name: 'Auckland', hdg: 50, len: 3635 }
+  { code: 'AKL', name: 'Auckland', hdg: 50, len: 3635 },
+  { code: 'ATL', name: 'Atlanta', hdg: 90, len: 3624 },
+  { code: 'DFW', name: 'Dallas Fort Worth', hdg: 170, len: 4085 },
+  { code: 'SEA', name: 'Seattle', hdg: 160, len: 3627 },
+  { code: 'LAS', name: 'Las Vegas', hdg: 10, len: 4423 },
+  { code: 'BOS', name: 'Boston', hdg: 40, len: 3050 },
+  { code: 'MSP', name: 'Minneapolis', hdg: 120, len: 3048 },
+  { code: 'YVR', name: 'Vancouver', hdg: 80, len: 3500 },
+  { code: 'MCO', name: 'Orlando', hdg: 180, len: 3660 },
+  { code: 'AMS', name: 'Amsterdam', hdg: 180, len: 3800 },
+  { code: 'MAD', name: 'Madrid', hdg: 140, len: 4100 },
+  { code: 'BCN', name: 'Barcelona', hdg: 70, len: 3352 },
+  { code: 'FCO', name: 'Rome Fiumicino', hdg: 160, len: 3900 },
+  { code: 'MUC', name: 'Munich', hdg: 80, len: 4000 },
+  { code: 'ZRH', name: 'Zurich', hdg: 160, len: 3700 },
+  { code: 'DOH', name: 'Doha', hdg: 160, len: 4850 },
+  { code: 'BKK', name: 'Bangkok', hdg: 10, len: 4000 },
+  { code: 'KUL', name: 'Kuala Lumpur', hdg: 140, len: 4056 },
+  { code: 'CGK', name: 'Jakarta', hdg: 70, len: 3660 },
+  { code: 'BOM', name: 'Mumbai', hdg: 90, len: 3445 },
+  { code: 'PVG', name: 'Shanghai Pudong', hdg: 170, len: 4000 },
+  { code: 'KIX', name: 'Osaka Kansai', hdg: 60, len: 3500 },
+  { code: 'EZE', name: 'Buenos Aires', hdg: 110, len: 3105 },
+  { code: 'SCL', name: 'Santiago', hdg: 170, len: 3800 },
+  { code: 'ADD', name: 'Addis Ababa', hdg: 70, len: 3800 },
+  { code: 'CPT', name: 'Cape Town', hdg: 160, len: 3201 },
+  { code: 'MEL', name: 'Melbourne', hdg: 160, len: 3657 }
 ];
 // real latitude and longitude of each airport, in degrees
 const GEO_AIRPORTS = {
@@ -987,7 +1013,8 @@ const GEO_AIRPORTS = {
   FRA: [50.03, 8.57], DXB: [25.25, 55.36], HND: [35.55, 139.78], SYD: [-33.95, 151.18],
   SIN: [1.36, 103.99], DEN: [39.86, -104.67], ORD: [41.98, -87.9], HKG: [22.31, 113.92],
   CDG: [49.01, 2.55], IST: [41.26, 28.74], DEL: [28.56, 77.1], PEK: [40.08, 116.58], ICN: [37.46, 126.44], GRU: [-23.43, -46.47],
-  JNB: [-26.14, 28.25], CAI: [30.12, 31.41], MEX: [19.44, -99.07], YYZ: [43.68, -79.63], MIA: [25.79, -80.29], AKL: [-37.01, 174.79]
+  JNB: [-26.14, 28.25], CAI: [30.12, 31.41], MEX: [19.44, -99.07], YYZ: [43.68, -79.63], MIA: [25.79, -80.29], AKL: [-37.01, 174.79],
+  ATL: [33.64, -84.43], DFW: [32.9, -97.04], SEA: [47.45, -122.31], LAS: [36.08, -115.15], BOS: [42.36, -71.01], MSP: [44.88, -93.22], YVR: [49.19, -123.18], MCO: [28.43, -81.31], AMS: [52.31, 4.76], MAD: [40.49, -3.57], BCN: [41.3, 2.08], FCO: [41.8, 12.25], MUC: [48.35, 11.79], ZRH: [47.46, 8.55], DOH: [25.27, 51.61], BKK: [13.69, 100.75], KUL: [2.75, 101.71], CGK: [-6.13, 106.66], BOM: [19.09, 72.87], PVG: [31.14, 121.81], KIX: [34.43, 135.23], EZE: [-34.82, -58.54], SCL: [-33.39, -70.79], ADD: [8.98, 38.8], CPT: [-33.97, 18.6], MEL: [-37.67, 144.84]
 };
 // Runways are kept to 2600 m (2000 m for the airports added later) so they all fit in the 12 km world. Each airport is placed where its runway
 // stays clear of the home runway and of the other airports, otherwise their flat pads would bury each other.
@@ -997,7 +1024,7 @@ const AIRPORTS = [];
   const homeGap = ([px, pz]) => Math.hypot(Math.max(Math.abs(px) - RUNWAY.x, 0), Math.max(RUNWAY.z0 - pz, pz - RUNWAY.z1, 0));
   AIRPORT_DATA.forEach((a, i) => {
     let hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
-    let len = Math.min(a.len, i < 12 ? 2600 : 2000), spot = null;
+    let len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : 1500)), spot = null;
     if (REGION) {
       // scan the whole map for the flattest, driest strip; the runway may turn up to 25 degrees from its real heading
       const cap = len, hl2 = cap / 2, base0 = hdgRad;
@@ -1034,7 +1061,7 @@ const AIRPORTS = [];
       return lo < WATER + 1.5 ? 1e9 : hi - lo;
     };
     if (!spot) for (const [gap, shrink, flatLimit] of [[450, 1, 40], [300, 1, 70], [180, 1, 120], [180, 0.75, 180], [120, 0.6, 320]]) {
-      len = Math.min(a.len, i < 12 ? 2600 : 2000) * shrink;
+      len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : 1500)) * shrink;
       const hl = len / 2;
       for (let t = 0; t < 1500 && !spot; t++) {
         const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200;
