@@ -1669,6 +1669,10 @@ function updateTower() {
     else if (!tower.tkSaid) { tower.tkSaid = true; tower.holdSaid = false; radio(`${a.code} TOWER: RUNWAY ${end.num} CLEARED FOR TAKE-OFF. ${windTxt}`); }
   }
   if (!p.onGround) tower.tkSaid = false;
+  if (a.blocked) {
+    if (!tower.blockedSaid) { tower.blockedSaid = true; radio(`${a.code} TOWER: RUNWAY CLOSED, DISABLED AIRCRAFT ON THE RUNWAY. DIVERT OR HOLD`); }
+    return;
+  } else tower.blockedSaid = false;
   if (tower.cleared || p.onGround || !p.gear) return;
   // on the approach to the runway end in use: lined up, in front of the runway, gear down
   const ux = Math.sin(end.hdg), uz = Math.cos(end.hdg);
@@ -2886,7 +2890,9 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyZ' && !e.repeat) checklistOn = !checklistOn;
   if (e.code === 'KeyO' && !e.repeat) snapRequested = true;
   if (e.code === 'KeyJ' && !e.repeat) toggleCruise();
-  if (e.code === 'KeyK' && !e.repeat && plane.engineOut) { plane.engineOut = false; flashNote('ENGINE RESTARTED'); }
+  if (e.code === 'KeyK' && !e.repeat && plane.fire != null) {
+    if (plane.throttle < 0.15) { plane.fire = null; flashNote('FIRE OUT. PRESS K AGAIN TO RESTART THE ENGINE'); } else flashNote('THROTTLE TO IDLE (0) FIRST');
+  } else if (e.code === 'KeyK' && !e.repeat && plane.engineOut) { plane.engineOut = false; flashNote('ENGINE RESTARTED'); }
   if (e.code === 'KeyL' && !e.repeat) lightsOn = !lightsOn;
   if (e.code === 'KeyM' && !e.repeat) setSound(!soundOn);
   if (e.code === 'BracketRight' && !e.repeat) plane.flaps = Math.min(3, plane.flaps + 1);
@@ -3033,16 +3039,44 @@ function accept(o) {
 }
 
 // Refuel on the ground: 1 coin per 1% of tank, as much as the coins allow.
+// A fuel truck has to drive out to you: stay stopped while it comes and fills the tank.
 function refuel() {
   const p = plane;
   if (!p.onGround || p.speed > 5 || p.crashed) return;
+  if (p.fuelTruck) return;
   const pct = Math.min(Math.round((1 - p.fuel) * 100), save.coins);
   if (pct <= 0) return;
-  save.coins -= pct;
-  p.fuel = Math.min(1, p.fuel + pct / 100);
-  p.leak = false;
-  writeSave();
+  const ax = axes(p), start = add(p.pos, add(mul(ax.right, 90), mul(ax.f, -70)));
+  p.fuelTruck = { t: 0, pct, start: [start[0], start[2]] };
+  flashNote('FUEL TRUCK ON ITS WAY: STAY STOPPED');
 }
+// emergencies and ground crews, stepped with the plane
+function blockedRunway(a, i) {
+  // now and then a disabled plane sits on a runway; it clears after a while
+  const bucket = Math.floor(windT / 420);
+  return !!a.apron && hash2(i, 5000 + bucket) < 0.09 && !(a.traffic || []).some(q => q && q.plane);
+}
+function emergencyStep(dt) {
+  const p = plane;
+  if (p.fire != null && !p.crashed) {
+    p.fire += dt;
+    if (p.fire >= 30) return crash('Engine fire');
+  }
+  const T = p.fuelTruck;
+  if (T) {
+    if (!p.onGround || p.speed > 3) { p.fuelTruck = null; flashNote('REFUELLING CANCELLED'); }
+    else {
+      T.t += dt;
+      const fill = 6 + T.pct * 0.04;
+      if (T.t >= fill) {
+        const pct = Math.min(T.pct, save.coins);
+        save.coins -= pct; p.fuel = Math.min(1, p.fuel + pct / 100); p.leak = false; p.fuelTruck = null; writeSave();
+        flashNote(`REFUELLED +${pct}% FOR ${pct} COINS`);
+      }
+    }
+  }
+}
+
 
 let hangarOpen = false;
 function toggleHangar() {
@@ -3841,7 +3875,8 @@ function update(dt) {
   // engine failure: now and then the engine quits in the air; K restarts it
   if (!p.engineOut && !p.onGround && !cruise && Math.random() < dt / 400 * (1 + wearOf(m) / 25)) {
     p.engineOut = true;
-    flashNote('ENGINE FAILURE! PRESS K TO RESTART');
+    if (Math.random() < 0.3) { p.fire = 0; flashNote('ENGINE FIRE! THROTTLE TO IDLE (0), THEN PRESS K TO PUT IT OUT'); radio('MAYDAY MAYDAY: ENGINE FIRE'); }
+    else flashNote('ENGINE FAILURE! PRESS K TO RESTART');
   }
   // fuel leak: now and then the tank starts to empty fast; refuelling on the ground fixes it
   if (!p.leak && !p.onGround && !cruise && Math.random() < dt / 900) {
@@ -3908,6 +3943,7 @@ function update(dt) {
     p.onGround = false;
   }
 
+  emergencyStep(dt);
   trafficUpdate(dt);
   { const tNow = performance.now() / 1000; let near = false; for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.hypot(q.x - p.pos[0], q.z - p.pos[2]) < 300 && Math.abs(q.y - p.pos[1]) < 120 && !p.onGround) near = true; } if (near) p.escortSecs = (p.escortSecs || 0) + dt; for (let k = 0; k < skyCount(); k++) { const q = skyFlight(k, tNow); if (q && Math.abs(q.x - p.pos[0]) < 45 && Math.abs(q.z - p.pos[2]) < 45 && Math.abs(q.y - p.pos[1]) < 18) return crash('mid-air collision with an airliner'); } }
   // a plane that is taxiing, taking off or landing
@@ -3920,6 +3956,12 @@ function update(dt) {
       const sn = Math.sin(Q.yaw), cs = Math.cos(Q.yaw), along = dx * sn + dz * cs, across = dx * cs - dz * sn;
       if (Math.abs(along) < Q.m.ext.len + 1 && Math.abs(across) < Q.m.ext.span + 1 && p.pos[1] < Q.y + Math.max(4, Q.m.ext.len * 0.5) && p.pos[1] > Q.y - Q.m.gearLen - 1) return crash('Hit another plane');
     }
+  }
+  // a disabled plane on a closed runway
+  for (const a of AIRPORTS) {
+    if (!a.blocked || Math.abs(p.pos[0] - a.x) > 100 || Math.abs(p.pos[2] - a.z) > 100) continue;
+    const m = MODELS.find(q => q.name === '737'), yaw = a.hdgRad + 0.3, dx = p.pos[0] - a.x, dz = p.pos[2] - a.z, sn = Math.sin(yaw), cs = Math.cos(yaw);
+    if (Math.abs(dx * sn + dz * cs) < m.ext.len + 1 && Math.abs(dx * cs - dz * sn) < m.ext.span + 1 && p.pos[1] < a.apron.y + 14) return crash('Hit a disabled plane on the runway');
   }
   // parked planes
   for (const [i, a] of AIRPORTS.entries()) {
@@ -4073,8 +4115,10 @@ function trafficUpdate(dt) {
   for (const [i, a] of AIRPORTS.entries()) {
     if (!a.apron) continue;
     if (Math.abs(p.pos[0] - a.x) > TRAFFIC_RANGE || Math.abs(p.pos[2] - a.z) > TRAFFIC_RANGE) { if (a.traffic) trafficStop(a); continue; }
+    a.blocked = blockedRunway(a, i);
+    if (a.blocked) continue;
     trafficStep(a, i, dt, 0);
-    if (a.stands.length > 1) trafficStep(a, i, dt, 1);
+    if (a.stands && a.stands.length > 1) trafficStep(a, i, dt, 1);
   }
 }
 // ---------- sky traffic: airliners flying real routes between the airports, climbing out, cruising and descending to the next runway
@@ -4563,6 +4607,7 @@ function render() {
       const list = standsOf(a, i).filter(st => !st.away).map(st => ({ m: st.m, paint: st.paint, x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: 0, up: false }));
       for (const slot of (a.traffic || [])) if (slot && slot.plane) list.push(slot.plane);
       if (Math.hypot(a.x - eye[0], a.z - eye[2]) < 1100) airportProps(a, i);
+      if (a.blocked) { const m = MODELS.find(q => q.name === '737'); list.push({ m, paint: { body: m.spec.body, stripe: [220, 40, 40], wing: m.spec.wing.col, fin: [220, 40, 40] }, x: a.x, y: a.apron.y + m.gearLen, z: a.z, yaw: a.hdgRad + 0.3, pitch: 0, up: false }); }
       for (const st of list) {
         const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
         if (d > 2200 || d < 3 || drawn >= 10) continue;
@@ -4588,6 +4633,16 @@ function render() {
       pushModelTris(st);
       drawn++;
     }
+  }
+  // the fuel truck driving out to the plane
+  if (plane.fuelTruck) {
+    const T = plane.fuelTruck, ax2 = axes(plane), k = clamp(T.t / 5, 0, 1);
+    const tx = plane.pos[0] + ax2.right[0] * 11, tz = plane.pos[2] + ax2.right[2] * 11;
+    const x = T.start[0] + (tx - T.start[0]) * k, z = T.start[1] + (tz - T.start[1]) * k, yaw = Math.atan2(tx - T.start[0], tz - T.start[1]), y = terrainAt(x, z);
+    pushBox(x, y + 0.5, z, yaw, 2.6, 2.3, 7.5, [236, 238, 240]);
+    pushBox(x, y + 0.5, z, yaw, 2.7, 1.1, 7.6, [210, 40, 36]);
+    const cx = x + Math.sin(yaw) * 3.3, cz = z + Math.cos(yaw) * 3.3;
+    pushBox(cx, y + 1.4, cz, yaw, 2.4, 1.2, 1.7, [200, 210, 220]);
   }
   // the aircraft itself: every face of its mesh, painted with the rest of the scene
   const toWorld = v => add(p.pos, add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2])));
@@ -5202,6 +5257,20 @@ function drawChecklist() {
     ctx.fillText((ok ? '[x] ' : '[ ] ') + t, x + 10, y + 40 + k * 20);
   });
 }
+function drawFire() {
+  const p = plane;
+  if (p.fire == null || !lastCam || !pilot || homeOpen) return;
+  const t = performance.now() / 1000, ax = axes(p);
+  for (let k = 0; k < 14; k++) {
+    const back = 6 + k * 9 + ((t * 40) % 9), up = 1 + k * 0.9, side = Math.sin(t * 3 + k) * (1 + k * 0.4);
+    const w = [p.pos[0] - ax.f[0] * back + ax.right[0] * side + ax.up[0] * up, p.pos[1] - ax.f[1] * back + ax.up[1] * up, p.pos[2] - ax.f[2] * back + ax.right[2] * side + ax.up[2] * up];
+    const s = wildProject(w);
+    if (!s) continue;
+    const r = clamp(F * (3 + k * 0.9) / s[2], 3, 60), a = 0.55 - k * 0.035;
+    ctx.fillStyle = k < 3 ? `rgba(255,140,30,${a + 0.2})` : `rgba(30,30,34,${a})`;
+    ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, 6.3); ctx.fill();
+  }
+}
 function drawStatus() {
   const p = plane, X = 16, Y = 130, ROW = 16;
   const agl = (p.pos[1] - terrainAt(p.pos[0], p.pos[2]) - (p.gear ? p.model.gearLen : 0)) * 3.281;
@@ -5210,6 +5279,7 @@ function drawStatus() {
   const rows = [
     ['GEAR', p.gear ? 'DOWN' : 'UP', p.gear ? '#3ddc97' : '#ff9f43'],
     ...(p.leak ? [['FUEL LEAK', 'YES', '#ff6b6b']] : []),
+    ...(p.fire != null ? [['FIRE', Math.max(0, 30 - Math.floor(p.fire)) + ' s', '#ff3b30']] : []),
     ...(p.engineOut ? [['ENGINE', 'OUT', '#ff6b6b']] : []),
     ...((p.ice || 0) > 0.05 ? [['ICING', Math.round(p.ice * 100) + '%', '#9fd8ff']] : []),
     ...(wearOf() >= 5 ? [['WEAR', Math.round(wearOf()) + '%', wearOf() > 50 ? '#ff6b6b' : '#ff9f43']] : []),
@@ -6617,6 +6687,7 @@ function frame(now) {
   drawHUD(now);
   drawStatus();
   drawChecklist();
+  drawFire();
   drawCruise();
   drawRain(now);
   drawMinimap();
