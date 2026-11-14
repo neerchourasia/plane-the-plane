@@ -51,6 +51,7 @@
       </div>
       <button id="refresh" class="ghost">Refresh</button>
       <button id="delTests" class="ghost">Delete test pilots (names starting with probe)</button>
+      <p id="delStatus" class="hint"></p>
       <button id="signout" class="ghost">Sign out</button>
       <a href="index.html">Back to the game</a>
     </div>
@@ -88,30 +89,41 @@ async function enter() {
   }
 }
 
-// removes a pilot and their save from the server, after a confirmation
-async function removePilot(name) {
-  if (!confirm(`Delete ${name} and their save? This cannot be undone.`)) return;
-  const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
-  try {
-    await api('/api/delete', { method: 'POST', body: { name }, token });
-    render();
-  } catch (e) {
-    $('loadErr').textContent = e.message || "Couldn't delete the pilot.";
-  }
-}
-
 let lastPilots = [];
-// removes every pilot whose name starts with probe, after one confirmation that lists them
+const adminToken = () => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+const say = (text, bad) => { const el = $('delStatus'); el.textContent = text; el.style.color = bad ? 'var(--bad)' : 'var(--muted)'; };
+// two steps without a pop-up: the first press lists the pilots, the second press (within 15 s) deletes them
+let armed = null;
 async function deleteTests() {
   const names = lastPilots.map(p => p.name).filter(n => n.startsWith('probe'));
-  if (!names.length) { $('loadErr').textContent = 'No test pilots found.'; return; }
-  if (!confirm(`Delete these ${names.length} test pilots and their saves? This cannot be undone.\n\n${names.join(', ')}`)) return;
-  const token = (() => { try { return sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } })();
+  if (!names.length) { say('No test pilots found. Press Refresh if you just signed in.', true); return; }
+  if (!armed) {
+    armed = setTimeout(() => { armed = null; $('delTests').textContent = 'Delete test pilots (names starting with probe)'; say(''); }, 15000);
+    $('delTests').textContent = `Press again to delete ${names.length} test pilots`;
+    say(`This will delete: ${names.join(', ')}. Press the button again within 15 seconds to confirm.`);
+    return;
+  }
+  clearTimeout(armed); armed = null;
+  $('delTests').textContent = 'Delete test pilots (names starting with probe)';
+  let done = 0;
   try {
-    for (const name of names) await api('/api/delete', { method: 'POST', body: { name }, token });
+    for (const name of names) { say(`Deleting ${name}...`); await api('/api/delete', { method: 'POST', body: { name }, token: adminToken() }); done++; }
+    say(`Deleted ${done} test pilot${done === 1 ? '' : 's'}.`);
+  } catch (e) {
+    say(`Stopped after ${done}: ${e.message || "couldn't reach the server."}`, true);
+  }
+  render();
+}
+
+// removes one pilot: the row button asks "Sure?" first
+async function removePilot(name, btn) {
+  if (btn.textContent !== 'Sure?') { btn.textContent = 'Sure?'; setTimeout(() => { if (btn.isConnected) btn.textContent = 'Delete'; }, 5000); return; }
+  try {
+    await api('/api/delete', { method: 'POST', body: { name }, token: adminToken() });
+    say(`Deleted ${name}.`);
     render();
   } catch (e) {
-    $('loadErr').textContent = e.message || "Couldn't delete the test pilots.";
+    say(e.message || "Couldn't delete the pilot.", true);
   }
 }
 
@@ -134,7 +146,7 @@ async function render() {
       const btn = document.createElement('button');
       btn.className = 'ghost';
       btn.textContent = 'Delete';
-      btn.onclick = () => removePilot(p.name);
+      btn.onclick = () => removePilot(p.name, btn);
       del.append(btn);
       tr.append(del);
       rows.append(tr);
