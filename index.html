@@ -65,6 +65,8 @@
 #stick { position: fixed; left: 16px; bottom: 16px; width: 150px; height: 150px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.35); touch-action: none; z-index: 15; }
 #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,0.45); pointer-events: none; }
 #tbtns { position: fixed; right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 210px; z-index: 15; }
+#tbtns.big { width: 270px; gap: 12px; }
+#tbtns.big button { padding: 22px 6px; font-size: 15px; }
 #tbtns button { margin: 0; padding: 14px 6px; background: rgba(10,20,35,0.65); color: #e8fff5; border: 1px solid rgba(255,255,255,0.35); border-radius: 10px; font: 600 13px ui-monospace, Menlo, Consolas, monospace; touch-action: none; user-select: none; }
 </style>
 <style>
@@ -7381,7 +7383,11 @@ requestAnimationFrame(frame);
     <button data-tap="KeyX">BARREL ROLL</button>
     <button data-tap="KeyG">GEAR</button>
     <button data-tap="KeyN">WAYPOINT</button>
+    <button data-tap="KeyI">ILS LAND</button>
+    <button data-tap="KeyP">AUTOPILOT</button>
     <button id="tiltBtn">TILT OFF</button>
+    <button id="calBtn">CALIBRATE</button>
+    <button id="bigBtn">BIG BUTTONS</button>
   </div>
 </div>
 <script>
@@ -7438,6 +7444,14 @@ requestAnimationFrame(frame);
   const setKey = (code, on) => { if (held[code] !== on) { held[code] = on; fire(on ? 'keydown' : 'keyup', code); } };
   let tilt = false, base = null;
   const btn = document.getElementById('tiltBtn');
+  // calibrate: hold the phone the way you want "level" to be, then tap; the next reading becomes the zero point
+  document.getElementById('calBtn').addEventListener('touchstart', e => { e.preventDefault(); base = null; for (const c in held) setKey(c, false); if (typeof flashNote === 'function') flashNote(tilt ? 'TILT CALIBRATED: THIS IS LEVEL' : 'TURN TILT ON FIRST'); }, { passive: false });
+  // big buttons for thumbs
+  const tb = document.getElementById('tbtns'), bigBtn = document.getElementById('bigBtn');
+  const applyBig = on => { tb.classList.toggle('big', on); bigBtn.textContent = on ? 'SMALL BUTTONS' : 'BIG BUTTONS'; try { localStorage.setItem('plane-the-plane-big', on ? '1' : '0'); } catch (e) { /* not saved */ } };
+  let big = false; try { big = localStorage.getItem('plane-the-plane-big') === '1'; } catch (e) { /* storage blocked */ }
+  applyBig(big);
+  bigBtn.addEventListener('touchstart', e => { e.preventDefault(); big = !big; applyBig(big); }, { passive: false });
   const onTilt = e => {
     if (!tilt || e.beta == null || e.gamma == null) return;
     if (!base) base = { beta: e.beta, gamma: e.gamma };
