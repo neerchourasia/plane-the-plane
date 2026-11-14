@@ -1261,6 +1261,7 @@ async function loadBoard() {
 // ---------- replay: the last 6 seconds, shown after a crash or a hard landing
 let replay = null;
 function startReplay() {
+  return;   // switched off: the crash replay was confusing
   const frames = (plane.hist || []).slice();
   if (frames.length < 5) return;
   replay = { frames, t: 0 };
