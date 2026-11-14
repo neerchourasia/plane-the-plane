@@ -309,6 +309,7 @@ const MODELS = [
   {
     name: 'Trainer', price: 0, thrust: 9, stall: 22, drag: 0.0016,
     spec: {
+      win: [0.42, 0.72], engineCol: [92, 96, 104],
       len: 8.3, r: 0.62, nose: 0.12, tail: 0.2, body: [240, 240, 244], stripe: null,
       wing: { y: 0.55, z: 1.3, cr: 1.7, ct: 1.1, sweep: 0.05, span: 5.6, dih: 0.04, col: [200, 206, 216] },
       tail: { y: 0.25, z: -2.9, cr: 1.2, ct: 0.7, sweep: 0.3, span: 1.9 },
@@ -320,6 +321,7 @@ const MODELS = [
   {
     name: 'Sport Jet', level: 2, price: 2500, thrust: 12, stall: 26, drag: 0.00025,
     spec: {
+      win: [0.3, 0.75], belly: [150, 156, 172], engineCol: [232, 234, 240], radome: [64, 68, 78], tailCap: [72, 76, 86],
       len: 14.9, r: 0.98, nose: 0.16, tail: 0.2, body: [244, 246, 250], stripe: [255, 200, 40],
       wing: { y: -0.35, z: 0.9, cr: 3.2, ct: 1.1, sweep: 0.5, span: 6.2, dih: 0.07, col: [190, 196, 210] },
       tail: { y: 0, z: -4.8, cr: 2.2, ct: 0.9, sweep: 0.35, span: 4.4 },
@@ -331,6 +333,7 @@ const MODELS = [
   {
     name: 'Airliner', level: 3, price: 10000, thrust: 8, stall: 34, drag: 0.00015,
     spec: {
+      belly: [192, 198, 210], radome: [64, 68, 78], tailCap: [72, 76, 86],
       len: 37.6, r: 1.95, nose: 0.13, tail: 0.22, body: [246, 246, 250], stripe: [0, 90, 170],
       wing: { y: -0.9, z: 2.6, cr: 6.2, ct: 1.5, sweep: 0.44, span: 17.2, dih: 0.07, col: [208, 212, 222] },
       tail: { y: 0.7, z: -11.4, cr: 4.6, ct: 1.5, sweep: 0.5, span: 6.0 },
@@ -341,46 +344,51 @@ const MODELS = [
   {
     name: '777X', level: 5, price: 15000, thrust: 8, stall: 36, drag: 0.00011,
     spec: {
-      len: 76.7, r: 3.05, nose: 0.09, tail: 0.17, body: [246, 247, 250], stripe: [0, 80, 160],
+      belly: [198, 203, 214], engineCol: [206, 210, 218], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 76.7, r: 3.05, nose: 0.09, tail: 0.17, body: [246, 247, 250], stripe: [190, 150, 30],
       wing: { y: -1.4, z: 6.5, cr: 13, ct: 2.4, sweep: 0.55, span: 34.5, dih: 0.1, col: [214, 218, 226], winglet: 2.6 },
       tail: { y: 1.0, z: -26, cr: 8.2, ct: 2.4, sweep: 0.62, span: 13 },
-      fin: { z: -23, cr: 12, ct: 3.2, h: 9.5, sweep: 0.8, col: [0, 70, 150] },
+      fin: { z: -23, cr: 12, ct: 3.2, h: 9.5, sweep: 0.8, col: [150, 22, 44] },
       engines: [{ s: 11.5, drop: 2.4, r: 2.05, len: 6.6, fwd: 0.9 }]
     }
   },
   {
     name: '737', level: 2, price: 4000, thrust: 7, stall: 28, drag: 0.00013,
     spec: {
-      len: 39.5, r: 1.9, nose: 0.12, tail: 0.2, body: [246, 246, 250], stripe: [190, 30, 45],
+      belly: [168, 174, 190], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 39.5, r: 1.9, nose: 0.12, tail: 0.2, body: [246, 246, 250], stripe: [238, 120, 30],
       wing: { y: -0.95, z: 2.4, cr: 6.5, ct: 1.6, sweep: 0.44, span: 17.9, dih: 0.08, col: [210, 214, 224], winglet: 2.2 },
       tail: { y: 0.7, z: -12.6, cr: 4.6, ct: 1.5, sweep: 0.56, span: 7.4 },
-      fin: { z: -11.2, cr: 7.2, ct: 2.4, h: 6.0, sweep: 0.62, col: [190, 30, 45] },
+      fin: { z: -11.2, cr: 7.2, ct: 2.4, h: 6.0, sweep: 0.62, col: [238, 120, 30] },
       engines: [{ s: 6.5, drop: 1.6, r: 1.05, len: 3.1, fwd: 0.4 }]
     }
   },
   {
     name: '787', level: 4, price: 12000, thrust: 8, stall: 32, drag: 0.00012,
     spec: {
-      len: 56.7, r: 2.9, nose: 0.09, tail: 0.18, body: [246, 247, 250], stripe: [40, 80, 150],
+      belly: [150, 156, 168], engineCol: [128, 134, 146], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 56.7, r: 2.9, nose: 0.09, tail: 0.18, body: [246, 247, 250], stripe: [22, 112, 84],
       wing: { y: -1.2, z: 6.0, cr: 10.5, ct: 2.0, sweep: 0.56, span: 30, dih: 0.1, col: [214, 218, 226] },
       tail: { y: 0.9, z: -20, cr: 6, ct: 2, sweep: 0.56, span: 11 },
-      fin: { z: -17, cr: 10, ct: 3, h: 8, sweep: 0.75, col: [60, 64, 76] },
+      fin: { z: -17, cr: 10, ct: 3, h: 8, sweep: 0.75, col: [22, 112, 84] },
       engines: [{ s: 10.5, drop: 1.8, r: 1.5, len: 4.8, fwd: 0.6 }]
     }
   },
   {
     name: '747', level: 6, price: 25000, thrust: 8, stall: 40, drag: 0.00012,
     spec: {
-      len: 76.3, r: 3.2, nose: 0.1, tail: 0.17, body: [246, 246, 250], stripe: [0, 80, 160],
+      hump: [0.66, 0.9, 1.3], belly: [190, 195, 206], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 76.3, r: 3.2, nose: 0.1, tail: 0.17, body: [246, 246, 250], stripe: [200, 30, 40],
       wing: { y: -1.5, z: 8, cr: 14, ct: 2.3, sweep: 0.66, span: 33, dih: 0.12, col: [210, 214, 224] },
       tail: { y: 1.1, z: -28, cr: 9, ct: 2.5, sweep: 0.5, span: 13 },
-      fin: { z: -24, cr: 13, ct: 3, h: 12.5, sweep: 0.65, col: [0, 80, 160] },
+      fin: { z: -24, cr: 13, ct: 3, h: 12.5, sweep: 0.65, col: [200, 30, 40] },
       engines: [{ s: 8.8, drop: 2.6, r: 1.65, len: 4.9, fwd: 0.6 }, { s: 19, drop: 2.6, r: 1.65, len: 4.9, fwd: 0.6 }]
     }
   },
   {
     name: 'Cessna 172', level: 1, price: 1500, thrust: 6, stall: 16, drag: 0.00115,
     spec: {
+      win: [0.42, 0.72], struts: true, engineCol: [64, 68, 76],
       len: 8.3, r: 0.6, nose: 0.14, tail: 0.22, body: [250, 250, 248], stripe: [200, 30, 30],
       wing: { y: 0.9, z: 1.2, cr: 1.6, ct: 1.2, sweep: 0.0, span: 5.5, dih: 0.1, col: [236, 236, 240] },
       tail: { y: 0.4, z: -3.0, cr: 1.2, ct: 0.8, sweep: 0.25, span: 1.9 },
@@ -392,46 +400,51 @@ const MODELS = [
   {
     name: 'Embraer E175', level: 2, price: 5000, thrust: 7, stall: 27, drag: 0.00013,
     spec: {
-      len: 31.7, r: 1.6, nose: 0.14, tail: 0.2, body: [244, 246, 250], stripe: [40, 90, 170],
+      win: [0.22, 0.8], belly: [176, 182, 196], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 31.7, r: 1.6, nose: 0.14, tail: 0.2, body: [244, 246, 250], stripe: [96, 56, 146],
       wing: { y: -0.7, z: 1.9, cr: 4.2, ct: 1.2, sweep: 0.45, span: 14, dih: 0.07, col: [200, 206, 216], winglet: 1.2 },
       tail: { y: 0.4, z: -13.5, cr: 3.2, ct: 1.1, sweep: 0.5, span: 5.4 },
-      fin: { z: -12.5, cr: 4.6, ct: 1.6, h: 4.4, sweep: 0.6, col: [40, 90, 170] },
+      fin: { z: -12.5, cr: 4.6, ct: 1.6, h: 4.4, sweep: 0.6, col: [96, 56, 146] },
       engines: [{ s: 4.6, drop: 1.4, r: 0.95, len: 2.8, fwd: 0.4 }]
     }
   },
   {
     name: '757', level: 3, price: 9000, thrust: 8, stall: 31, drag: 0.00013,
     spec: {
-      len: 47.3, r: 1.7, nose: 0.12, tail: 0.2, body: [246, 246, 250], stripe: [20, 50, 110],
+      belly: [180, 188, 202], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 47.3, r: 1.7, nose: 0.12, tail: 0.2, body: [246, 246, 250], stripe: [0, 132, 132],
       wing: { y: -1.0, z: 3.4, cr: 7.4, ct: 1.5, sweep: 0.45, span: 19, dih: 0.08, col: [210, 214, 224], winglet: 1.8 },
       tail: { y: 0.8, z: -17, cr: 4.6, ct: 1.5, sweep: 0.55, span: 7.5 },
-      fin: { z: -14.5, cr: 7.5, ct: 2.4, h: 6.4, sweep: 0.62, col: [20, 50, 110] },
+      fin: { z: -14.5, cr: 7.5, ct: 2.4, h: 6.4, sweep: 0.62, col: [0, 132, 132] },
       engines: [{ s: 7.2, drop: 1.7, r: 1.1, len: 3.6, fwd: 0.5 }]
     }
   },
   {
     name: '767', level: 4, price: 11000, thrust: 8, stall: 32, drag: 0.00013,
     spec: {
-      len: 54.9, r: 2.5, nose: 0.1, tail: 0.2, body: [246, 246, 250], stripe: [0, 110, 160],
+      belly: [184, 190, 204], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 54.9, r: 2.5, nose: 0.1, tail: 0.2, body: [246, 246, 250], stripe: [0, 140, 205],
       wing: { y: -1.1, z: 5.4, cr: 8.5, ct: 1.8, sweep: 0.5, span: 24.4, dih: 0.08, col: [212, 216, 226], winglet: 1.6 },
       tail: { y: 0.9, z: -21, cr: 5.6, ct: 1.8, sweep: 0.55, span: 9.5 },
-      fin: { z: -18, cr: 9, ct: 2.8, h: 7.6, sweep: 0.7, col: [0, 110, 160] },
+      fin: { z: -18, cr: 9, ct: 2.8, h: 7.6, sweep: 0.7, col: [0, 140, 205] },
       engines: [{ s: 8.5, drop: 1.9, r: 1.35, len: 4.2, fwd: 0.5 }]
     }
   },
   {
     name: 'A330', level: 5, price: 18000, thrust: 8, stall: 34, drag: 0.00012,
     spec: {
-      len: 63.7, r: 2.9, nose: 0.1, tail: 0.18, body: [246, 246, 250], stripe: [40, 70, 130],
+      belly: [176, 184, 200], radome: [64, 68, 78], tailCap: [72, 76, 86],
+      len: 63.7, r: 2.9, nose: 0.1, tail: 0.18, body: [246, 246, 250], stripe: [20, 52, 124],
       wing: { y: -1.1, z: 6.2, cr: 9.8, ct: 1.8, sweep: 0.5, span: 30.3, dih: 0.08, col: [210, 214, 224], winglet: 2.0 },
       tail: { y: 0.8, z: -23, cr: 5.8, ct: 1.8, sweep: 0.55, span: 10.5 },
-      fin: { z: -20, cr: 9.5, ct: 2.9, h: 8.6, sweep: 0.7, col: [40, 70, 130] },
+      fin: { z: -20, cr: 9.5, ct: 2.9, h: 8.6, sweep: 0.7, col: [240, 190, 30] },
       engines: [{ s: 9.5, drop: 2.0, r: 1.5, len: 4.6, fwd: 0.5 }]
     }
   },
   {
     name: 'A350', level: 5, price: 22000, thrust: 8, stall: 35, drag: 0.00011,
     spec: {
+      belly: [150, 156, 170], engineCol: [120, 126, 140], radome: [64, 68, 78], tailCap: [72, 76, 86],
       len: 66.8, r: 3.0, nose: 0.09, tail: 0.18, body: [248, 248, 250], stripe: [50, 56, 70],
       wing: { y: -1.2, z: 6.6, cr: 11, ct: 1.9, sweep: 0.52, span: 31.9, dih: 0.1, col: [214, 218, 226], winglet: 2.2 },
       tail: { y: 0.9, z: -24, cr: 6.4, ct: 1.9, sweep: 0.58, span: 11.2 },
@@ -442,6 +455,7 @@ const MODELS = [
   {
     name: 'A380', level: 7, price: 40000, thrust: 8, stall: 40, drag: 0.00011,
     spec: {
+      deck: 1.14, belly: [186, 192, 206], radome: [64, 68, 78], tailCap: [72, 76, 86],
       len: 72.7, r: 3.5, nose: 0.09, tail: 0.16, body: [246, 246, 250], stripe: [30, 80, 160],
       wing: { y: -1.5, z: 8.5, cr: 14.5, ct: 2.5, sweep: 0.5, span: 39.8, dih: 0.1, col: [210, 214, 224], winglet: 2.4 },
       tail: { y: 1.1, z: -28, cr: 9, ct: 2.6, sweep: 0.55, span: 14.5 },
@@ -452,6 +466,7 @@ const MODELS = [
   {
     name: 'F-16', level: 6, price: 30000, thrust: 20, stall: 38, drag: 8e-05,
     spec: {
+      win: null, noseK: 1.5, canopy: { z0: 2.1, z1: 5.6, r: 0.36, y: 0.36 }, belly: [152, 156, 164], radome: [60, 62, 70], engineCol: [58, 60, 68],
       len: 15.1, r: 0.55, nose: 0.25, tail: 0.2, body: [110, 114, 122], stripe: null,
       wing: { y: -0.1, z: 1.6, cr: 5.0, ct: 1.1, sweep: 0.75, span: 4.6, dih: 0.02, col: [96, 100, 108] },
       tail: { y: 0.2, z: -6.3, cr: 2.0, ct: 0.9, sweep: 0.7, span: 2.4 },
@@ -462,6 +477,7 @@ const MODELS = [
   {
     name: 'Concorde', level: 8, price: 60000, thrust: 14, stall: 45, drag: 4e-05,
     spec: {
+      noseK: 1.25, droop: 0.9, win: [0.3, 0.8], belly: [236, 238, 244], engineCol: [150, 154, 166],
       len: 61.7, r: 1.3, nose: 0.2, tail: 0.15, body: [246, 246, 250], stripe: null,
       wing: { y: -0.6, z: 14, cr: 26, ct: 0.6, sweep: 1.15, span: 7.8, dih: 0.02, col: [214, 218, 226] },
       tail: { y: 0, z: -29, cr: 0.8, ct: 0.4, sweep: 0.3, span: 0.5 },
@@ -472,6 +488,7 @@ const MODELS = [
   {
     name: 'Seaplane', level: 2, price: 3500, thrust: 6, stall: 17, drag: 0.0012, float: true,
     spec: {
+      win: [0.42, 0.72], struts: true, engineCol: [90, 96, 108],
       len: 8.3, r: 0.6, nose: 0.14, tail: 0.22, body: [244, 244, 248], stripe: [40, 90, 200],
       wing: { y: 0.9, z: 1.2, cr: 1.6, ct: 1.2, sweep: 0.0, span: 5.5, dih: 0.1, col: [228, 232, 240] },
       tail: { y: 0.4, z: -3.0, cr: 1.2, ct: 0.8, sweep: 0.25, span: 1.9 },
@@ -483,6 +500,7 @@ const MODELS = [
   {
     name: 'Helicopter', level: 3, price: 8000, thrust: 8, stall: 0, drag: 0.003, heli: true,
     spec: {
+      win: [0.38, 0.6], engineCol: [96, 100, 108],
       len: 9.0, r: 0.9, nose: 0.22, tail: 0.58, body: [236, 236, 240], stripe: [220, 40, 40],
       wing: { y: 0.1, z: 0.4, cr: 0.9, ct: 0.6, sweep: 0.0, span: 1.7, dih: 0, col: [200, 206, 216] },
       tail: { y: 0.55, z: -3.9, cr: 0.8, ct: 0.5, sweep: 0.3, span: 1.0 },
@@ -502,22 +520,25 @@ function buildAircraft(m) {
   const out = [], lights = [];
 
   // a ring of SEG points around the axis (cx, cy) at height z
-  const ringAt = (cx, cy, r, z) => {
+  const ringAt = (cx, cy, r, z, up = 1) => {
     const pts = [];
     for (let j = 0; j < SEG; j++) {
       const th = 2 * Math.PI * j / SEG, s = Math.sin(th);
-      pts.push([cx + r * Math.cos(th), cy + r * s * (s < 0 ? 0.9 : 1), z]);
+      pts.push([cx + r * Math.cos(th), cy + r * s * (s < 0 ? 0.9 : up), z]);
     }
     return pts;
   };
   // joins neighbouring rings into quads, turned so their normals point away from the axis
   const tube = (rings, cx, cy, colAt) => {
     for (let i = 0; i < rings.length - 1; i++) {
+      // the middle of the two rings: rings can be shifted or taller on one side, so it is measured, not assumed
+      const mid = [0, 1].map(a => rings[i + a].reduce((acc, p) => acc + p[1], 0) / SEG);
+      const my = (mid[0] + mid[1]) / 2;
       for (let j = 0; j < SEG; j++) {
         const j2 = (j + 1) % SEG;
         const q = [rings[i][j], rings[i][j2], rings[i + 1][j2], rings[i + 1][j]];
         const ctr = mul(q.reduce((a, p) => add(a, p), [0, 0, 0]), 0.25);
-        if (dot(cross(sub(q[1], q[0]), sub(q[2], q[0])), sub(ctr, [cx, cy, ctr[2]])) < 0) q.reverse();
+        if (dot(cross(sub(q[1], q[0]), sub(q[2], q[0])), sub(ctr, [cx, my, ctr[2]])) < 0) q.reverse();
         out.push({ pts: q, col: colAt(i, j), two: false, smooth: true });
       }
     }
@@ -526,24 +547,47 @@ function buildAircraft(m) {
 
   // fuselage: rounded nose, slimmer tail cone, rings packed closer at both ends
   const T = Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(Math.PI * i / (N - 1)));
+  const sm = (a, b, t) => clamp((t - a) / (b - a), 0, 1);
   const radiusAt = t => {
-    if (t > 1 - sp.nose) return R * Math.max(0.12, Math.sqrt(1 - Math.pow((t - 1 + sp.nose) / sp.nose, 3)));
+    if (t > 1 - sp.nose) return R * Math.max(0.1, Math.sqrt(1 - Math.pow((t - 1 + sp.nose) / sp.nose, sp.noseK || 3)));
     if (t < sp.tail) return R * (0.35 + 0.65 * Math.sqrt(t / sp.tail));
     return R;
   };
-  const rings = T.map(t => ringAt(0, 0, radiusAt(t), -L / 2 + t * L));
+  // a taller body: a full second deck along most of the length (deck) or a hump on the front half (hump: [from, to, factor])
+  const upAt = t => {
+    let k = 1;
+    if (sp.deck) k *= 1 + (sp.deck - 1) * sm(0.12, 0.3, t) * (1 - sm(0.8, 0.95, t));
+    if (sp.hump && t > sp.hump[0] && t < sp.hump[1]) k *= 1 + (sp.hump[2] - 1) * Math.sin(Math.PI * (t - sp.hump[0]) / (sp.hump[1] - sp.hump[0]));
+    return k;
+  };
+  // a drooped nose: the tip bends down
+  const droopAt = t => (sp.droop ? -sp.droop * Math.pow(sm(1 - sp.nose * 1.6, 1 - sp.nose * 0.15, t), 2) : 0);
+  const rings = T.map(t => ringAt(0, droopAt(t), radiusAt(t), -L / 2 + t * L, upAt(t)));
+  const win = sp.win === undefined ? [0.2, 0.85] : sp.win;   // where the cabin windows run, or null for none
   tube(rings, 0, 0, (i, j) => {
     const t = (T[i] + T[i + 1]) / 2, th = 2 * Math.PI * (j + 0.5) / SEG;
     const c = Math.cos(th), s = Math.sin(th);
     if (t > 1 - sp.nose * 0.6 && s > 0.3 && Math.abs(c) < 0.75) return WINDOW;     // cockpit glass
-    if (Math.abs(c) > 0.9 && t > 0.2 && t < 0.85) {
+    if (sp.radome && t > 1 - 0.035) return sp.radome;                               // dark nose cone
+    if (Math.abs(c) > 0.9 && win && t > win[0] && t < win[1]) {
       if (s > 0.1 && s < 0.4) return WINDOW;                                         // passenger windows
       if (sp.stripe && s < -0.05 && s > -0.3) return sp.stripe;                      // livery stripe
     }
+    if (sp.belly && s < -0.4) return sp.belly;                                       // a different colour underneath
     return sp.body;
   });
-  flat(rings[0], sp.body);
-  flat(rings[N - 1], sp.body);
+  flat(rings[0], sp.tailCap || sp.body);
+  flat(rings[N - 1], sp.radome || sp.body);
+
+  // fighter canopy: a glass bubble on top of the body
+  if (sp.canopy) {
+    const c = sp.canopy, K = 8, rs = [];
+    for (let i = 0; i <= K; i++) {
+      const u = i / K;
+      rs.push(ringAt(0, c.y, Math.max(c.r * Math.pow(Math.sin(Math.PI * clamp(u * 0.96 + 0.02, 0, 1)), 0.6), 0.03), c.z0 + (c.z1 - c.z0) * u));
+    }
+    tube(rs, 0, c.y, () => WINDOW);
+  }
 
   // wing or tail surface: leading edge swept back, chord tapering to the tip, mirrored left and right
   const planform = wg => {
@@ -566,6 +610,12 @@ function buildAircraft(m) {
   };
   const wingCol = sp.wing.col, f = sp.fin, y0 = R * 0.5, tanF = Math.tan(f.sweep);
   let tailLE = null;
+  if (sp.struts) {
+    for (const k of [-1, 1]) {
+      const sx = sp.wing.span * 0.55, sy = sp.wing.y + (sp.wing.dih || 0) * sx;
+      flat([[k * 0.5, -R * 0.6, sp.wing.z + 0.3], [k * sx, sy, sp.wing.z - 0.5], [k * sx, sy, sp.wing.z - 0.75], [k * 0.5, -R * 0.6, sp.wing.z + 0.05]], sp.engineCol || ENGINE);
+    }
+  }
   const tailWg = { ...sp.tail, y: sp.tTail ? y0 + f.h - 0.4 : sp.tail.y };
   surface(sp.wing, wingCol, f.col, true);
 
@@ -631,13 +681,19 @@ function buildAircraft(m) {
   const nacelle = (cx, cy, zF, r, ln) => {
     const prof = [0.92, 1, 1, 0.9, 0.8];
     const rs = prof.map((k, i) => ringAt(cx, cy, r * k, zF - i / (prof.length - 1) * ln));
-    tube(rs, cx, cy, i => (i === 0 ? INTAKE : i === prof.length - 2 ? mul(ENGINE, 0.8) : ENGINE));
+    const ec = sp.engineCol || ENGINE;
+    tube(rs, cx, cy, i => (i === 0 ? INTAKE : i === prof.length - 2 ? mul(ec, 0.8) : ec));
     flat(rs[0], INTAKE);
   };
   for (const e of sp.engines) {
     if (e.s !== undefined) {
       const g = planform(sp.wing);
-      for (const k of [-1, 1]) nacelle(k * e.s, g.Y(e.s) - e.drop, g.LE(e.s) + e.fwd, e.r, e.len);
+      for (const k of [-1, 1]) {
+        nacelle(k * e.s, g.Y(e.s) - e.drop, g.LE(e.s) + e.fwd, e.r, e.len);
+        // the pylon: a thin plate from the wing's underside down to the top of the engine
+        const ch = g.LE(e.s) - g.TE(e.s), yTop = g.Y(e.s) + 0.02, yEng = g.Y(e.s) - e.drop + e.r * 0.7;
+        flat([[k * e.s, yTop, g.LE(e.s) - ch * 0.1], [k * e.s, yTop, g.LE(e.s) - ch * 0.5], [k * e.s, yEng, g.LE(e.s) + e.fwd - e.len * 0.55], [k * e.s, yEng, g.LE(e.s) + e.fwd - e.len * 0.1]], sp.wing.col);
+      }
     } else {
       for (const k of e.mirror ? [-1, 1] : [1]) nacelle(k * e.at[0], e.at[1], e.at[2], e.r, e.len);
     }
@@ -694,6 +750,11 @@ function buildAircraft(m) {
   leg(0, L * 0.32);                                   // nose gear
   const mx = Math.max(R * 0.8, 0.9), mz = sp.wing.z - 0.5;
   leg(-mx, mz); leg(mx, mz);                          // main gear
+  if (L > 30) {   // big planes: more axles on each main leg, and a belly gear on the biggest
+    const wheel = (x, z) => gear.push({ pts: [[x - 0.3, -gl, z], [x + 0.3, -gl, z], [x + 0.3, -gl * 0.65, z], [x - 0.3, -gl * 0.65, z]], col: [30, 30, 34], two: true });
+    for (const k of [-1, 1]) { wheel(k * mx, mz + 1.5); wheel(k * mx, mz - 1.5); }
+    if (L > 60) { leg(-mx * 0.45, mz - 2.5); leg(mx * 0.45, mz - 2.5); }
+  }
   if (sp.floats) { m.gearLen = 0; gear.length = 0; }   // the floats sit on the water: there is no landing gear
   if (sp.heli) {                                        // skids instead of wheels
     gear.length = 0;
