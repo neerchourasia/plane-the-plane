@@ -3864,7 +3864,8 @@ function update(dt) {
 
   // rolling resistance on the runway, extra braking with Space
   if (wasOnGround) {
-    const k = 0.03 + (down('Space') ? 2.5 : 0);
+    const grip = snowingNow() ? 0.4 : rainLevel() > 0.4 ? 0.65 : 1;   // wet or snowy runways brake worse
+    const k = 0.03 + (down('Space') ? 2.5 * grip : 0);
     v[0] *= Math.exp(-k * dt);
     v[2] *= Math.exp(-k * dt);
   }
@@ -4224,6 +4225,12 @@ const here = () => (typeof plane !== 'undefined' && plane ? plane.pos : [0, 0, 0
 const fogAtPlace = (x, z) => clamp(Math.sin(windT / 260 + 2 + wxPhase(x, z, 0)) * 1.5 - 0.6, 0, 1);
 const rainAtPlace = (x, z) => clamp(Math.sin(windT / 150 + wxPhase(x, z, 1)) * 1.4 - 0.4, 0, 1);
 const fogLevel = () => fogAtPlace(here()[0], here()[2]);
+// the fog bank thickens with the fog level and lies on the ground below the plane; snow falls instead of rain in the cold parts of the map
+const bankK = () => clamp((fogLevel() - 0.25) * 1.6, 0, 0.95);
+const bankTopY = () => terrainAt(here()[0], here()[2]) + 220;
+const coldAtPlace = (x, z) => valueNoise(x / 6000 + 31, z / 6000 + 9) < 0.38;
+const snowingNow = () => coldAtPlace(here()[0], here()[2]) && rainLevel() > 0.2;
+let snowSmooth = 0;
 let fogEnd = FOG_END;
 const fogAt = d => clamp((d - FOG_START) / (fogEnd - FOG_START), 0, 1);
 const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
@@ -5390,7 +5397,19 @@ function rainLevel() { return rainAtPlace(here()[0], here()[2]); }
 const drops = Array.from({ length: 220 }, (_, i) => ({ x: hash2(i, 91), y: hash2(i, 92), v: 0.6 + hash2(i, 93) * 0.6 }));
 function drawRain(now) {
   const amount = rainLevel();
+  // snow settles on the ground gradually, and melts when it stops
+  snowSmooth += ((snowingNow() ? clamp((amount - 0.15) * 2.2, 0, 1) : 0) - snowSmooth) * 0.004;
   if (amount < 0.05) return;
+  if (snowingNow()) {
+    // snow: big slow flakes drifting sideways
+    const n = Math.round(drops.length * amount * 0.8);
+    ctx.fillStyle = `rgba(245,248,255,${(0.55 + 0.3 * amount).toFixed(2)})`;
+    for (let i = 0; i < n; i++) {
+      const d = drops[i], y = ((d.y + now / 1000 * 0.12 * d.v) % 1) * H, x = (d.x * W + Math.sin(now / 900 + i) * 14 + y * 0.05) % W;
+      ctx.beginPath(); ctx.arc(x, y, 1.2 + (i % 3) * 0.7, 0, 6.3); ctx.fill();
+    }
+    return;
+  }
   const n = Math.round(drops.length * amount), len = 14 + 10 * amount;
   ctx.strokeStyle = `rgba(200,215,235,${(0.25 + 0.3 * amount).toFixed(2)})`;
   ctx.lineWidth = 1;
@@ -5632,6 +5651,13 @@ function drawPlaneGL({ eye, cr, cu, cf }) {
 }
 
 // ---------- the ground in WebGL: one smooth mesh of the whole height map, lit per pixel, with a fine texture made in the shader
+// a bank of fog lying on the low ground: it is thickest near the surface and ends at a flat top, so from above it looks like a white deck
+const BANK_GLSL = `
+uniform float uBank, uBankTop;
+float bankFog(float fog, float dist, float y) {
+  float layer = 1.0 - smoothstep(uBankTop - 160.0, uBankTop, y);
+  return max(fog, uBank * layer * smoothstep(60.0, 700.0, dist));
+}`;
 const TGL_VS = `
 attribute vec3 aPos; attribute vec3 aNor;
 uniform vec3 uEye, uR, uU, uF;
@@ -5651,7 +5677,8 @@ precision highp float;
 precision mediump float;
 #endif
 uniform vec3 uEye, uSun, uHaze, uRock, uTint;
-uniform float uDim, uFogStart, uFogEnd, uTime, uWater, uRockH, uSnowH, uTintK;
+uniform float uDim, uFogStart, uFogEnd, uTime, uWater, uRockH, uSnowH, uTintK, uSnowAmt;
+${BANK_GLSL}
 uniform sampler2D uMap;
 varying vec3 vW; varying vec3 vN;
 float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -5734,11 +5761,12 @@ void main() {
     // snow, with a ragged edge
     float sn = clamp((h - uSnowH) / 150.0 + (vn(xz / 60.0) - 0.5) * 0.35, 0.0, 1.0);
     base = mix(base, vec3(0.93, 0.95, 0.98), sn);
+    base = mix(base, vec3(0.93, 0.95, 0.98), uSnowAmt * smoothstep(0.7, 0.95, Nd.y));   // it is snowing here: flat ground turns white
     float diff = max(dot(Nd, uSun), 0.0);
     col = base * clamp(0.42 + 0.58 * diff, 0.42, 1.0) * uDim;
   }
   col += vec3(spec);
-  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  float fog = bankFog(clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0), dist, vW.y);
   col = mix(col, uHaze, fog);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -5764,6 +5792,7 @@ precision mediump float;
 #endif
 uniform vec3 uEye, uSun, uHaze;
 uniform float uDim, uNight, uFogStart, uFogEnd;
+${BANK_GLSL}
 varying vec3 vW; varying vec3 vN; varying vec2 vUV; varying vec3 vC; varying float vK; varying vec2 vDim;
 float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float vn(vec2 p) {
@@ -5833,7 +5862,7 @@ void main() {
   }
   float diff = max(dot(N, uSun), 0.0);
   col = col * (0.36 + 0.2 * N.y + 0.64 * diff) * uDim + vec3(spec) + emis;
-  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  float fog = bankFog(clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0), dist, vW.y);
   col = mix(col, uHaze, fog);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -6025,6 +6054,7 @@ precision mediump float;
 #endif
 uniform vec3 uEye, uSun, uHaze;
 uniform float uDim, uFogStart, uFogEnd;
+${BANK_GLSL}
 varying vec3 vW; varying vec3 vN; varying vec2 vPart; varying float vHue; varying float vType;` + TREE_NOISE + `
 void main() {
   float dist = length(uEye - vW);
@@ -6042,7 +6072,7 @@ void main() {
   }
   float diff = max(dot(N, uSun), 0.0);
   col *= (0.34 + 0.22 * N.y + 0.66 * diff) * uDim;
-  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  float fog = bankFog(clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0), dist, vW.y);
   col = mix(col, uHaze, fog);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -6069,6 +6099,7 @@ precision mediump float;
 #endif
 uniform vec3 uEye, uSun, uHaze;
 uniform float uDim, uFogStart, uFogEnd;
+${BANK_GLSL}
 varying vec2 vQ; varying float vHue; varying float vType; varying vec3 vW;` + TREE_NOISE + `
 void main() {
   float u = vQ.x, v = vQ.y;
@@ -6088,7 +6119,7 @@ void main() {
   col *= 0.55 + 0.6 * v;
   col *= (0.5 + 0.5 * uSun.y) * uDim;
   float dist = length(uEye - vW);
-  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  float fog = bankFog(clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0), dist, vW.y);
   col = mix(col, uHaze, fog);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -6106,7 +6137,7 @@ function initTreesGL(g, compile, map) {
   };
   const dprog = link(TREE_VS, TREE_FS, ['aP', 'aN', 'aPart', 'iPos', 'iA']);
   const iprog = link(TIMP_VS, TIMP_FS, ['aQ', 'iPos', 'iA']);
-  const names = ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uDim', 'uFogStart', 'uFogEnd', 'uTime', 'uNearTrees'];
+  const names = ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uDim', 'uFogStart', 'uFogEnd', 'uBank', 'uBankTop', 'uTime', 'uNearTrees'];
   const du = {}, iu = {};
   for (const n of names) { du[n] = g.getUniformLocation(dprog, n); iu[n] = g.getUniformLocation(iprog, n); }
   const trees = buildTreeData(map);
@@ -6122,7 +6153,7 @@ function drawTreesGL(T, g, eye, cr, cu, cf, hazeRGB, L) {
     g.uniform3fv(u.uEye, eye); g.uniform3fv(u.uR, cr); g.uniform3fv(u.uU, cu); g.uniform3fv(u.uF, cf);
     g.uniform1f(u.uFocal, F); g.uniform1f(u.uHalfW, W / 2); g.uniform1f(u.uHalfH, H / 2); g.uniform1f(u.uNear, NEAR); g.uniform1f(u.uFar, 40000);
     g.uniform3fv(u.uSun, sun); g.uniform3f(u.uHaze, hazeRGB[0] / 255, hazeRGB[1] / 255, hazeRGB[2] / 255);
-    g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd);
+    g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd); g.uniform1f(u.uBank, bankK()); g.uniform1f(u.uBankTop, bankTopY()); if (u.uSnowAmt) g.uniform1f(u.uSnowAmt, snowSmooth);
     g.uniform1f(u.uTime, performance.now() / 1000); g.uniform1f(u.uNearTrees, NEAR_TREES);
   };
   // far trees: one billboard each, drawn in a single call
@@ -6259,7 +6290,7 @@ function initTerrainGL() {
     g.linkProgram(prog);
     if (!g.getProgramParameter(prog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(prog));
     const loc = n => g.getAttribLocation(prog, n), uni = {};
-    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uRock', 'uTint', 'uDim', 'uFogStart', 'uFogEnd', 'uTime', 'uWater', 'uRockH', 'uSnowH', 'uTintK', 'uMap']) uni[n] = g.getUniformLocation(prog, n);
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uRock', 'uTint', 'uDim', 'uFogStart', 'uFogEnd', 'uBank', 'uBankTop', 'uTime', 'uWater', 'uRockH', 'uSnowH', 'uTintK', 'uMap', 'uSnowAmt']) uni[n] = g.getUniformLocation(prog, n);
     // heights of every grid point, with the runway platforms and lakes applied, and smooth normals from them
     const N = TER_N, TH = new Float32Array(N * N);
     for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) TH[i * N + j] = terrainAt(i * TER_STEP - TER_HALF, j * TER_STEP - TER_HALF);
@@ -6323,7 +6354,7 @@ function initTerrainGL() {
     g.linkProgram(bprog);
     if (!g.getProgramParameter(bprog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(bprog));
     const bu = {};
-    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uDim', 'uNight', 'uFogStart', 'uFogEnd']) bu[n] = g.getUniformLocation(bprog, n);
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uDim', 'uNight', 'uFogStart', 'uFogEnd', 'uBank', 'uBankTop']) bu[n] = g.getUniformLocation(bprog, n);
     const ba = { pos: g.getAttribLocation(bprog, 'aPos'), nor: g.getAttribLocation(bprog, 'aNor'), uv: g.getAttribLocation(bprog, 'aUV'), col: g.getAttribLocation(bprog, 'aCol'), kind: g.getAttribLocation(bprog, 'aKind'), dim: g.getAttribLocation(bprog, 'aDim') };
     const mesh = buildBuildingMesh(), bvbo = g.createBuffer(), bibo = g.createBuffer();
     g.bindBuffer(g.ARRAY_BUFFER, bvbo); g.bufferData(g.ARRAY_BUFFER, mesh.data, g.STATIC_DRAW);
@@ -6350,7 +6381,7 @@ function drawTerrainGL(eye, cr, cu, cf, hazeRGB, L) {
   const tint = LAND.tint || [0, 0, 0];
   g.uniform3f(u.uTint, tint[0] / 255, tint[1] / 255, tint[2] / 255);
   g.uniform1f(u.uTintK, LAND.tint ? LAND.tintK : 0);
-  g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd);
+  g.uniform1f(u.uDim, L); g.uniform1f(u.uFogStart, FOG_START); g.uniform1f(u.uFogEnd, fogEnd); g.uniform1f(u.uBank, bankK()); g.uniform1f(u.uBankTop, bankTopY()); if (u.uSnowAmt) g.uniform1f(u.uSnowAmt, snowSmooth);
   g.uniform1f(u.uTime, performance.now() / 1000); g.uniform1f(u.uWater, WATER);
   g.uniform1f(u.uRockH, LAND.rockH); g.uniform1f(u.uSnowH, LAND.snowH);
   g.activeTexture(g.TEXTURE0); g.bindTexture(g.TEXTURE_2D, T.mapTex); g.uniform1i(u.uMap, 0);
@@ -6381,7 +6412,7 @@ function drawTerrainGL(eye, cr, cu, cf, hazeRGB, L) {
   g.uniform1f(b.uFocal, F); g.uniform1f(b.uHalfW, W / 2); g.uniform1f(b.uHalfH, H / 2); g.uniform1f(b.uNear, NEAR); g.uniform1f(b.uFar, 40000);
   g.uniform3fv(b.uSun, sun);
   g.uniform3f(b.uHaze, hazeRGB[0] / 255, hazeRGB[1] / 255, hazeRGB[2] / 255);
-  g.uniform1f(b.uDim, L); g.uniform1f(b.uNight, clamp((0.5 - L) * 2.5, 0, 1)); g.uniform1f(b.uFogStart, FOG_START); g.uniform1f(b.uFogEnd, fogEnd);
+  g.uniform1f(b.uDim, L); g.uniform1f(b.uNight, clamp((0.5 - L) * 2.5, 0, 1)); g.uniform1f(b.uFogStart, FOG_START); g.uniform1f(b.uFogEnd, fogEnd); g.uniform1f(b.uBank, bankK()); g.uniform1f(b.uBankTop, bankTopY());
   g.bindBuffer(g.ARRAY_BUFFER, T.bvbo);
   const ST = 56, A = T.ba;
   for (const [loc, size, off] of [[A.pos, 3, 0], [A.nor, 3, 12], [A.uv, 2, 24], [A.col, 3, 32], [A.kind, 1, 44], [A.dim, 2, 48]]) {
