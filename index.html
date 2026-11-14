@@ -60,6 +60,7 @@
 </style>
 <style>
 #touch[hidden] { display: none; }
+@media (max-height: 520px) { #stick { width: 116px; height: 116px; bottom: 10px; left: 10px; } #tbtns { width: 150px; gap: 5px; bottom: 8px; right: 8px; } #tbtns button { padding: 8px 2px; font-size: 10px; border-radius: 8px; } #tbtns button { opacity: 0.8; } }
 #stick { position: fixed; left: 16px; bottom: 16px; width: 150px; height: 150px; border-radius: 50%; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.35); touch-action: none; z-index: 15; }
 #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,0.45); pointer-events: none; }
 #tbtns { position: fixed; right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; width: 210px; z-index: 15; }
