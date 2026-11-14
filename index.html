@@ -289,6 +289,7 @@ G           gear up / down (up only in the air)
 P           autopilot: hold heading and altitude
 I           ILS autoland: lines up with the runway ahead and flies the glide slope down (gear down first)
 Z           pre-flight checklist
+Comma       drop water on a wildfire (fly low over it)
 H           photo mode: free camera, time of day, photos; F9 records an 8 second video clip
 O           photo: saves a picture of the view
 K           restart the engine after a failure
@@ -1423,6 +1424,91 @@ function checkRings(a, b) {
 }
 // draws the rings that are still there, from the camera of the current frame
 let lastCam = null;
+// ---------- emergencies on the ground: wildfires to put out and survivors to find. A few appear at a time and change every 15 minutes.
+const EVENT_SECS = 900;
+let eventCache = { bucket: -1, list: [] };
+function eventsNow() {
+  const bucket = Math.floor(windT / EVENT_SECS);
+  if (eventCache.bucket === bucket) return eventCache.list;
+  const list = [];
+  for (let k = 0; k < 3; k++) {
+    for (let tries = 0; tries < 80; tries++) {
+      const x = (hash2(bucket * 7 + k, 8101 + tries) - 0.5) * 1.7 * TER_HALF, z = (hash2(bucket * 7 + k, 8201 + tries) - 0.5) * 1.7 * TER_HALF;
+      if (terrainAt(x, z) < WATER + 4 || onAirfield(x, z, 160)) continue;
+      list.push({ type: k === 2 ? 'rescue' : 'fire', x, z, hp: 1, done: false, told: false, id: bucket * 10 + k });
+      break;
+    }
+  }
+  eventCache = { bucket, list };
+  return list;
+}
+function nearestEvent() {
+  const p = plane;
+  let best = null, bd = 1e9;
+  for (const e of eventsNow()) { if (e.done) continue; const d = Math.hypot(e.x - p.pos[0], e.z - p.pos[2]); if (d < bd) { bd = d; best = e; } }
+  return best ? { e: best, d: bd } : null;
+}
+function eventStep(dt) {
+  const p = plane;
+  if (p.crashed || p.model.heli && false) return;
+  // a plane that is parked or taxiing is refilled with water; low flying over a lake scoops it up
+  if (p.water == null) p.water = 1;
+  if (p.onGround && p.speed < 3) p.water = 1;
+  else if (!p.onGround && p.speed > 25 && terrainAt(p.pos[0], p.pos[2]) <= WATER + 0.1 && p.pos[1] - WATER < 30) p.water = Math.min(1, p.water + 0.3 * dt);
+  for (const e of eventsNow()) {
+    if (e.done) continue;
+    const d = Math.hypot(e.x - p.pos[0], e.z - p.pos[2]), agl = p.pos[1] - terrainAt(p.pos[0], p.pos[2]);
+    if (!e.told && d < 9000) {
+      e.told = true;
+      radio(e.type === 'fire' ? `DISPATCH: WILDFIRE ${(d / 1000).toFixed(1)} KM ${bearingText(e.x - p.pos[0], e.z - p.pos[2])}. FLY LOW OVER IT AND HOLD COMMA TO DROP WATER` : `DISPATCH: SURVIVORS REPORTED ${(d / 1000).toFixed(1)} KM ${bearingText(e.x - p.pos[0], e.z - p.pos[2])}. FIND THE RED FLARE AND FLY LOW OVER IT`);
+    }
+    if (e.type === 'fire' && d < 260 && agl < 220 && down('Comma') && p.water > 0 && !p.onGround) {
+      p.water = Math.max(0, p.water - 0.3 * dt);
+      e.hp -= 0.36 * dt;
+      if (e.hp <= 0) { e.done = true; save.coins += 600; save.xp += 150; save.fires = (save.fires || 0) + 1; writeSave(); flashNote('FIRE OUT +600 COINS'); radio('DISPATCH: FIRE IS OUT. WELL DONE'); playTones([[523, 0, 0.12], [784, 0.12, 0.3]]); }
+    }
+    if (e.type === 'rescue' && d < 160 && agl < 120 && p.speed < 80 && !p.onGround) {
+      e.done = true; save.coins += 450; save.xp += 120; save.rescues = (save.rescues || 0) + 1; writeSave();
+      flashNote('SURVIVORS FOUND +450 COINS'); radio('DISPATCH: SURVIVORS SPOTTED. HELICOPTER SENT. THANK YOU');
+      playTones([[523, 0, 0.12], [659, 0.12, 0.12], [784, 0.24, 0.3]]);
+    }
+  }
+}
+function drawEvents() {
+  if (!lastCam || !pilot || homeOpen) return;
+  const now = performance.now() / 1000, p = plane;
+  for (const e of eventsNow()) {
+    if (e.done) continue;
+    const gy = terrainAt(e.x, e.z), base = wildProject([e.x, gy, e.z]);
+    if (!base || base[2] > 9000) continue;
+    if (e.type === 'fire') {
+      const k = clamp(e.hp, 0.15, 1);
+      for (let j = 0; j < 9; j++) {
+        const rise = ((now * 0.25 + j / 9) % 1), h = rise * 380 * k, drift = rise * 120;
+        const s = wildProject([e.x + drift, gy + h, e.z + drift * 0.4]);
+        if (!s) continue;
+        const r = clamp(F * (14 + rise * 70) * k / s[2], 2, 90);
+        ctx.fillStyle = `rgba(${40 + rise * 40},${38 + rise * 36},${38 + rise * 34},${(0.5 * (1 - rise * 0.8)).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, 6.3); ctx.fill();
+      }
+      const r = clamp(F * 28 * k / base[2], 3, 70), g = ctx.createRadialGradient(base[0], base[1], 0, base[0], base[1], r);
+      g.addColorStop(0, 'rgba(255,200,80,0.95)'); g.addColorStop(0.5, 'rgba(255,100,20,0.6)'); g.addColorStop(1, 'rgba(255,60,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(base[0], base[1], r, 0, 6.3); ctx.fill();
+    } else {
+      const top = wildProject([e.x, gy + 70, e.z]), pulse = 0.5 + 0.5 * Math.sin(now * 5);
+      if (top) { ctx.strokeStyle = `rgba(255,70,50,${(0.4 + 0.4 * pulse).toFixed(2)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(base[0], base[1]); ctx.lineTo(top[0], top[1]); ctx.stroke(); }
+      const r = clamp(F * 4 / base[2], 3, 16);
+      ctx.fillStyle = `rgba(255,${60 + 120 * pulse},50,0.95)`; ctx.beginPath(); ctx.arc(base[0], base[1], r * (0.8 + 0.5 * pulse), 0, 6.3); ctx.fill();
+    }
+  }
+  // the nearest emergency: distance and bearing under the compass, and the water left
+  const n = nearestEvent();
+  if (n && n.d < 20000) {
+    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'center'; ctx.fillStyle = n.e.type === 'fire' ? '#ff9a5a' : '#ff6b6b';
+    ctx.fillText(`${n.e.type === 'fire' ? 'WILDFIRE' : 'SURVIVORS'} ${(n.d / 1000).toFixed(1)} KM ${bearingText(n.e.x - p.pos[0], n.e.z - p.pos[2])}${n.e.type === 'fire' ? '   WATER ' + Math.round((p.water == null ? 1 : p.water) * 100) + '%' : ''}`, W / 2, 62);
+    ctx.textAlign = 'start';
+  }
+}
 function drawRings() {
   if (!lastCam) return;
   const { eye, cr, cu, cf } = lastCam;
@@ -4260,6 +4346,7 @@ function update(dt) {
   }
 
   emergencyStep(dt);
+  eventStep(dt);
   trackApproach(dt);
   // take-off roll: call the rotation speed once
   if (p.onGround && p.throttle > 0.6 && !p.model.heli) {
@@ -7168,6 +7255,7 @@ function frame(now) {
   drawGunsight();
   drawCockpitPanel();
   drawRings();
+  drawEvents();
   drawWildlife();
   drawRace();
   drawPilots();
