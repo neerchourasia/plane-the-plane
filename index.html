@@ -4369,7 +4369,14 @@ async function api(path, { method = 'GET', body, token = '', keepalive = false }
   if (token) headers.Authorization = 'Bearer ' + token;
   const res = await fetch(path, { method, headers, keepalive, body: body !== undefined ? JSON.stringify(body) : undefined });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) { const e = new Error(data.error || 'Something went wrong.'); e.status = res.status; throw e; }
+  if (!res.ok) {
+    // a copy of the game without the server (for example a local test copy) answers 404 or 501 with no message
+    const noServer = !data.error && (res.status === 404 || res.status === 501);
+    const e = new Error(data.error || (noServer ? 'This copy of the game has no sign-in server. Open planetheplane.vercel.app to sign in.' : 'Something went wrong.'));
+    e.status = res.status;
+    e.noServer = noServer;
+    throw e;
+  }
   return data;
 }
 function rememberName(name) {
@@ -4546,7 +4553,9 @@ async function submitLogin(create) {
       signIn(data.name, data.save);
     }
   } catch (e) {
-    if (!create && e.status === 404 && readJSON(pilotKey(name.toLowerCase()), null)) {
+    if (e.noServer) {
+      msg.textContent = e.message;
+    } else if (!create && e.status === 404 && readJSON(pilotKey(name.toLowerCase()), null)) {
       msg.textContent = 'This pilot is not on the server any more. Press Create pilot with the same name to bring your saved progress back.';
     } else if (!create && e.status === 404) {
       msg.textContent = 'No pilot with that name on the server. Check the spelling, or press Create pilot to make it (pilots from before accounts moved online need to be created again).';
