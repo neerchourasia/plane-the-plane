@@ -190,7 +190,6 @@
       <button id="homeSchool">Flight school</button>
       <button id="homeRaces">Air races</button>
       <button id="homeAccount">Account</button>
-      <button id="homeAdmin">Admin</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
     <p class="hint">Fly takes you to the runway. Press Esc to come back here from the air.</p>
@@ -217,7 +216,6 @@
     <h2>Hangar</h2>
     <div id="coins"></div>
     <button id="switchPilot">Switch pilot</button>
-    <button id="openAdmin" style="display:none">Admin</button>
     <div id="list"></div>
     <button id="openLivery">Livery maker</button>
     <h3>Missions</h3>
@@ -2493,7 +2491,6 @@ function renderExtras() {
 function renderHangar() {
   renderExtras();
   document.getElementById('coins').textContent = `Pilot ${pilot || '-'}   Coins: ${save.coins}   Level ${careerLevel()}   XP ${save.xp}   Contracts ${save.completed}`;
-  document.getElementById('openAdmin').style.display = isAdmin() ? '' : 'none';
   const list = document.getElementById('list');
   list.innerHTML = '';
   MODELS.forEach((m, i) => {
@@ -4618,9 +4615,8 @@ function signIn(name, saved) {
   renderHangar();
   showHome();
 }
-// ---------- home screen: after signing in, pick Fly, the hangar, the livery maker or admin
+// ---------- home screen: after signing in, pick Fly, the hangar, the livery maker and more
 let homeOpen = false;
-const isAdmin = () => !!pilot && pilot.toLowerCase() === 'human';
 function showHome() {
   homeOpen = true;
   const best = save.records && save.records[0] ? save.records[0].km : '0';
@@ -4628,7 +4624,6 @@ function showHome() {
   document.getElementById('callsign').value = save.callsign || '';
   for (const k in keys) keys[k] = false;
   document.getElementById('homeWho').textContent = `Signed in as ${pilot}`;
-  document.getElementById('homeAdmin').style.display = isAdmin() ? '' : 'none';
   document.getElementById('home').style.display = 'flex';
 }
 function hideHome() {
@@ -4693,7 +4688,6 @@ document.getElementById('switchPilot').onclick = signOut;
 document.getElementById('homeFly').onclick = hideHome;
 document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar(); };
 document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
-document.getElementById('homeAdmin').onclick = () => { location.href = 'admin.html'; };
 document.getElementById('homeSwitch').onclick = signOut;
 document.getElementById('worldClose').onclick = toggleWorld;
 document.getElementById('schoolClose').onclick = toggleSchool;
@@ -4706,7 +4700,6 @@ document.getElementById('homeRaces').onclick = () => { hideHome(); toggleRaces()
 document.getElementById('homeSchool').onclick = () => { hideHome(); toggleSchool(); };
 document.getElementById('homeWorld').onclick = () => { hideHome(); toggleWorld(); };
 document.getElementById('callsign').onchange = e => { save.callsign = e.target.value.trim().slice(0, 12); writeSave(); };
-document.getElementById('openAdmin').onclick = () => { location.href = 'admin.html'; };
 renderPilots();
 
 

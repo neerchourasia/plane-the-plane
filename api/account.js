@@ -1,4 +1,4 @@
-import { db, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ipOf, ADMIN_NAME } from '../lib/accounts.js';
+import { db, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ipOf } from '../lib/accounts.js';
 
 // Account actions for the signed-in pilot: sign out on the server, change the password, delete the account.
 export default async function handler(req, res) {
@@ -35,7 +35,6 @@ export default async function handler(req, res) {
       return res.json({ ok: true });
     }
 
-    if (name === ADMIN_NAME) return res.status(403).json({ error: 'The admin pilot cannot be deleted.' });
     await r.del(['pilot:' + name, 'save:' + name, 'presence:' + name, 'session:' + tokenOf(req)]);
     await r.sRem('pilots', name);
     await r.zRem('online', name);
