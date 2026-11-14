@@ -3810,7 +3810,7 @@ function render() {
 
   // buildings and clouds, painted far to near
   const items = [];
-  for (const b of buildings) {
+  for (const b of (useGL ? [] : buildings)) {
     const d = Math.hypot(b.x - eye[0], b.z - eye[2]);
     if (d > FOG_END) continue;
     if (blockedFrom(eye, [b.x, b.top, b.z])) continue;   // behind a hill
@@ -4857,6 +4857,160 @@ void main() {
   col = mix(col, uHaze, fog);
   gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
+// ---------- buildings in WebGL: houses with pitched roofs, blocks with window grids and flat roofs, glass towers
+// They share the ground's depth buffer, so hills hide them correctly. Windows are made in the shader; they light up at night.
+const BLD_VS = `
+attribute vec3 aPos; attribute vec3 aNor; attribute vec2 aUV; attribute vec3 aCol; attribute float aKind; attribute vec2 aDim;
+uniform vec3 uEye, uR, uU, uF;
+uniform float uFocal, uHalfW, uHalfH, uNear, uFar;
+varying vec3 vW; varying vec3 vN; varying vec2 vUV; varying vec3 vC; varying float vK; varying vec2 vDim;
+void main() {
+  vec3 d = aPos - uEye;
+  vec3 c = vec3(dot(d, uR), dot(d, uU), dot(d, uF));
+  float z = (c.z - uNear) / (uFar - uNear) * 2.0 - 1.0;
+  gl_Position = vec4(c.x * uFocal / uHalfW, c.y * uFocal / uHalfH, z * c.z, c.z);
+  vW = aPos; vN = aNor; vUV = aUV; vC = aCol; vK = aKind; vDim = aDim;
+}`;
+const BLD_FS = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+uniform vec3 uEye, uSun, uHaze;
+uniform float uDim, uNight, uFogStart, uFogEnd;
+varying vec3 vW; varying vec3 vN; varying vec2 vUV; varying vec3 vC; varying float vK; varying vec2 vDim;
+float h21(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float vn(vec2 p) {
+  vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+void main() {
+  vec3 V = uEye - vW;
+  float dist = length(V); V /= dist;
+  vec3 N = normalize(vN);
+  if (dot(N, V) < 0.0) N = -N;
+  vec3 col;
+  vec3 emis = vec3(0.0);
+  float spec = 0.0;
+  float near = 1.0 - smoothstep(60.0, 900.0, dist);       // fine detail fades with distance
+  if (N.y > 0.25) {
+    // roofs
+    if (vK < 0.5 && N.y < 0.95) {
+      // pitched roof: tiles in rows
+      float row = 0.82 + 0.18 * sin(vUV.y * 5.0) * near;
+      col = vC * row * (0.85 + 0.3 * vn(vUV * 1.4));
+    } else {
+      // flat roof: concrete with a parapet edge and a few rooftop boxes
+      float e = min(min(vUV.x, vDim.x - vUV.x), min(vUV.y, vDim.y - vUV.y));
+      col = vec3(0.42, 0.43, 0.45) * (0.85 + 0.3 * vn(vUV * 0.8));
+      if (e < 0.7) col = vec3(0.68, 0.68, 0.66);
+      vec2 cell = floor(vUV / 7.0);
+      float bx = h21(cell + floor(vDim.x));
+      if (bx > 0.86 && e > 2.0) { vec2 f = fract(vUV / 7.0); if (f.x > 0.2 && f.x < 0.7 && f.y > 0.25 && f.y < 0.65) col = vec3(0.55, 0.57, 0.6); }
+      if (vK > 1.5) col = mix(col, vec3(0.5, 0.58, 0.66), 0.5);
+    }
+  } else {
+    float u = vUV.x, v = vUV.y;
+    float winW = vK < 0.5 ? 4.2 : vK < 1.5 ? 3.6 : 2.4;
+    float floorH = vK < 0.5 ? 3.1 : vK < 1.5 ? 3.4 : 3.7;
+    float cu = floor(u / winW), cv = floor(v / floorH);
+    vec2 f = vec2(fract(u / winW), fract(v / floorH));
+    vec2 lo = vK < 0.5 ? vec2(0.3, 0.28) : vK < 1.5 ? vec2(0.24, 0.3) : vec2(0.03, 0.14);
+    vec2 hi = vK < 0.5 ? vec2(0.7, 0.72) : vK < 1.5 ? vec2(0.76, 0.7) : vec2(0.97, 0.86);
+    bool glass = f.x > lo.x && f.x < hi.x && f.y > lo.y && f.y < hi.y && v > 0.4;
+    float r = h21(vec2(cu, cv) + vec2(floor(vW.x * 0.013), floor(vW.z * 0.013)));
+    // wall: concrete or plaster with floor lines, streaks and a dark base
+    vec3 wall = vC * (0.86 + 0.28 * vn(vec2(u, v) * 0.6)) * (1.0 - 0.12 * vn(vec2(u * 0.4, v * 0.04)));
+    wall *= mix(0.72, 1.0, smoothstep(0.0, 9.0, v));
+    if (vK < 2.5 && f.y < 0.07 && v > 1.0) wall *= 0.86;
+    if (v < 0.0) { col = wall * 0.75; }
+    else if (glass) {
+      float fres = pow(1.0 - max(dot(N, V), 0.0), 2.0);
+      vec3 pane = mix(vec3(0.17, 0.25, 0.35), vec3(0.55, 0.72, 0.9) * uDim, 0.3 + 0.5 * fres) * (0.85 + 0.3 * r);
+      if (r < 0.14 && vK < 1.5) pane = mix(pane, vec3(0.78, 0.72, 0.6), 0.55);   // curtains
+      if (v < floorH && vK > 0.5 && vK < 1.5) pane = vec3(0.1, 0.12, 0.14) * (0.8 + 0.4 * r);   // dark shop front
+      col = pane;
+      if (r > 0.5) emis = vec3(1.0, 0.8, 0.48) * (0.55 + 0.6 * r) * uNight;                      // lit rooms at night
+      spec = pow(max(dot(reflect(-V, N), uSun), 0.0), 50.0) * 0.5 * (1.0 - uNight);
+    } else {
+      col = wall;
+      if (f.y > lo.y - 0.07 && f.y < lo.y && f.x > lo.x - 0.05 && f.x < hi.x + 0.05) col = wall * 1.1;   // a sill under each window
+      if (vK > 1.5) col = vC * (0.8 + 0.3 * fract(u / 1.2)) ;                                           // mullions on a glass tower
+    }
+  }
+  float diff = max(dot(N, uSun), 0.0);
+  col = col * (0.36 + 0.2 * N.y + 0.64 * diff) * uDim + vec3(spec) + emis;
+  float fog = clamp((dist - uFogStart) / (uFogEnd - uFogStart), 0.0, 1.0);
+  col = mix(col, uHaze, fog);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+// every building as a handful of quads in one buffer
+function buildBuildingMesh() {
+  const data = [], idx = [];
+  const vert = (p, n, u, v, c, kind, dw, dd) => { data.push(p[0], p[1], p[2], n[0], n[1], n[2], u, v, c[0], c[1], c[2], kind, dw, dd); return data.length / 14 - 1; };
+  const quad = (a, b, c, d, n, uv, col, kind, dw, dd) => {
+    const i = vert(a, n, uv[0][0], uv[0][1], col, kind, dw, dd);
+    vert(b, n, uv[1][0], uv[1][1], col, kind, dw, dd); vert(c, n, uv[2][0], uv[2][1], col, kind, dw, dd); vert(d, n, uv[3][0], uv[3][1], col, kind, dw, dd);
+    idx.push(i, i + 1, i + 2, i, i + 2, i + 3);
+  };
+  const tri = (a, b, c, n, uv, col, kind, dw, dd) => {
+    const i = vert(a, n, uv[0][0], uv[0][1], col, kind, dw, dd);
+    vert(b, n, uv[1][0], uv[1][1], col, kind, dw, dd); vert(c, n, uv[2][0], uv[2][1], col, kind, dw, dd);
+    idx.push(i, i + 1, i + 2);
+  };
+  // a box with four walls (down to a foundation 8 m below the ground) and a flat roof
+  const box = (cx, cz, w, d, yg, yTop, col, kind) => {
+    const x0 = cx - w / 2, x1 = cx + w / 2, z0 = cz - d / 2, z1 = cz + d / 2, yb = yg - 8, vt = yTop - yg, vb = -8;
+    quad([x0, yb, z0], [x1, yb, z0], [x1, yTop, z0], [x0, yTop, z0], [0, 0, -1], [[0, vb], [w, vb], [w, vt], [0, vt]], col, kind, w, d);
+    quad([x1, yb, z1], [x0, yb, z1], [x0, yTop, z1], [x1, yTop, z1], [0, 0, 1], [[0, vb], [w, vb], [w, vt], [0, vt]], col, kind, w, d);
+    quad([x0, yb, z1], [x0, yb, z0], [x0, yTop, z0], [x0, yTop, z1], [-1, 0, 0], [[0, vb], [d, vb], [d, vt], [0, vt]], col, kind, d, w);
+    quad([x1, yb, z0], [x1, yb, z1], [x1, yTop, z1], [x1, yTop, z0], [1, 0, 0], [[0, vb], [d, vb], [d, vt], [0, vt]], col, kind, d, w);
+    quad([x0, yTop, z0], [x1, yTop, z0], [x1, yTop, z1], [x0, yTop, z1], [0, 1, 0], [[0, 0], [w, 0], [w, d], [0, d]], col, kind, w, d);
+  };
+  buildings.forEach((b, id) => {
+    const r1 = hash2(id, 901), r2 = hash2(id, 902), r3 = hash2(id, 903);
+    const kind = b.h > 150 ? 2 : (b.h < 26 && Math.max(b.w, b.d) < 48) ? 0 : 1;
+    if (kind === 0) {
+      // a house: plaster walls and a pitched roof along the longer side
+      const walls = [[0.93, 0.9, 0.82], [0.86, 0.72, 0.55], [0.8, 0.5, 0.38], [0.92, 0.92, 0.9], [0.72, 0.78, 0.62]][Math.floor(r1 * 5)];
+      const roofs = [[0.55, 0.22, 0.15], [0.3, 0.32, 0.36], [0.45, 0.3, 0.22]][Math.floor(r2 * 3)];
+      const roofH = Math.min(7, Math.min(b.w, b.d) * 0.3), yEave = b.top - roofH, x0 = b.x - b.w / 2, x1 = b.x + b.w / 2, z0 = b.z - b.d / 2, z1 = b.z + b.d / 2;
+      const yb = b.y - 8, vt = yEave - b.y;
+      const slope = (cl, cr) => { const l = Math.hypot(cl, cr); return [cl / l, cr / l]; };
+      if (b.w >= b.d) {
+        quad([x0, yb, z0], [x1, yb, z0], [x1, yEave, z0], [x0, yEave, z0], [0, 0, -1], [[0, -8], [b.w, -8], [b.w, vt], [0, vt]], walls, 0, b.w, b.d);
+        quad([x1, yb, z1], [x0, yb, z1], [x0, yEave, z1], [x1, yEave, z1], [0, 0, 1], [[0, -8], [b.w, -8], [b.w, vt], [0, vt]], walls, 0, b.w, b.d);
+        quad([x0, yb, z1], [x0, yb, z0], [x0, yEave, z0], [x0, yEave, z1], [-1, 0, 0], [[0, -8], [b.d, -8], [b.d, vt], [0, vt]], walls, 0, b.d, b.w);
+        quad([x1, yb, z0], [x1, yb, z1], [x1, yEave, z1], [x1, yEave, z0], [1, 0, 0], [[0, -8], [b.d, -8], [b.d, vt], [0, vt]], walls, 0, b.d, b.w);
+        tri([x0, yEave, z0], [x0, yEave, z1], [x0, b.top, b.z], [-1, 0, 0], [[0, vt], [b.d, vt], [b.d / 2, vt + roofH]], walls, 0, b.d, b.w);
+        tri([x1, yEave, z1], [x1, yEave, z0], [x1, b.top, b.z], [1, 0, 0], [[0, vt], [b.d, vt], [b.d / 2, vt + roofH]], walls, 0, b.d, b.w);
+        const [ny, nz] = slope(roofH, b.d / 2);
+        quad([x0, yEave, z0], [x1, yEave, z0], [x1, b.top, b.z], [x0, b.top, b.z], [0, ny, -nz], [[0, 0], [b.w, 0], [b.w, 9], [0, 9]], roofs, 0, b.w, b.d);
+        quad([x1, yEave, z1], [x0, yEave, z1], [x0, b.top, b.z], [x1, b.top, b.z], [0, ny, nz], [[0, 0], [b.w, 0], [b.w, 9], [0, 9]], roofs, 0, b.w, b.d);
+      } else {
+        quad([x0, yb, z0], [x1, yb, z0], [x1, yEave, z0], [x0, yEave, z0], [0, 0, -1], [[0, -8], [b.w, -8], [b.w, vt], [0, vt]], walls, 0, b.w, b.d);
+        quad([x1, yb, z1], [x0, yb, z1], [x0, yEave, z1], [x1, yEave, z1], [0, 0, 1], [[0, -8], [b.w, -8], [b.w, vt], [0, vt]], walls, 0, b.w, b.d);
+        quad([x0, yb, z1], [x0, yb, z0], [x0, yEave, z0], [x0, yEave, z1], [-1, 0, 0], [[0, -8], [b.d, -8], [b.d, vt], [0, vt]], walls, 0, b.d, b.w);
+        quad([x1, yb, z0], [x1, yb, z1], [x1, yEave, z1], [x1, yEave, z0], [1, 0, 0], [[0, -8], [b.d, -8], [b.d, vt], [0, vt]], walls, 0, b.d, b.w);
+        tri([x0, yEave, z0], [x1, yEave, z0], [b.x, b.top, z0], [0, 0, -1], [[0, vt], [b.w, vt], [b.w / 2, vt + roofH]], walls, 0, b.w, b.d);
+        tri([x1, yEave, z1], [x0, yEave, z1], [b.x, b.top, z1], [0, 0, 1], [[0, vt], [b.w, vt], [b.w / 2, vt + roofH]], walls, 0, b.w, b.d);
+        const [ny, nx] = slope(roofH, b.w / 2);
+        quad([x0, yEave, z1], [x0, yEave, z0], [b.x, b.top, z0], [b.x, b.top, z1], [-nx, ny, 0], [[0, 0], [b.d, 0], [b.d, 9], [0, 9]], roofs, 0, b.d, b.w);
+        quad([x1, yEave, z0], [x1, yEave, z1], [b.x, b.top, z1], [b.x, b.top, z0], [nx, ny, 0], [[0, 0], [b.d, 0], [b.d, 9], [0, 9]], roofs, 0, b.d, b.w);
+      }
+    } else if (kind === 1) {
+      const tone = 0.76 + r1 * 0.18, brick = r2 < 0.2;
+      box(b.x, b.z, b.w, b.d, b.y, b.top, brick ? [0.6, 0.36, 0.28] : [tone, tone * 0.99, tone * 0.95], 1);
+    } else {
+      // a glass tower: a wide base and a narrower upper tier
+      const glassC = [0.3 + r1 * 0.1, 0.45 + r2 * 0.08, 0.58 + r3 * 0.08], hLow = b.y + (b.top - b.y) * 0.72;
+      box(b.x, b.z, b.w, b.d, b.y, hLow, glassC, 2);
+      box(b.x, b.z, b.w * 0.68, b.d * 0.68, hLow - 0.5, b.top, glassC, 2);
+    }
+  });
+  return { data: new Float32Array(data), idx: new Uint16Array(idx) };
+}
 function initTerrainGL() {
   const g = tgl;
   if (!g) return null;
@@ -4921,7 +5075,19 @@ function initTerrainGL() {
     g.bindBuffer(g.ARRAY_BUFFER, skVbo); g.bufferData(g.ARRAY_BUFFER, skirt, g.STATIC_DRAW);
     g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, skIbo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, new Uint16Array(skIdx), g.STATIC_DRAW);
     const aPos = loc('aPos'), aNor = loc('aNor');
-    return { g, prog, uni, aPos, aNor, chunks, lods, skVbo, skIbo, skCount: skIdx.length };
+    // the buildings: their own program and one buffer for all of them
+    const bprog = g.createProgram();
+    g.attachShader(bprog, compile(g.VERTEX_SHADER, BLD_VS));
+    g.attachShader(bprog, compile(g.FRAGMENT_SHADER, BLD_FS));
+    g.linkProgram(bprog);
+    if (!g.getProgramParameter(bprog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(bprog));
+    const bu = {};
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uHaze', 'uDim', 'uNight', 'uFogStart', 'uFogEnd']) bu[n] = g.getUniformLocation(bprog, n);
+    const ba = { pos: g.getAttribLocation(bprog, 'aPos'), nor: g.getAttribLocation(bprog, 'aNor'), uv: g.getAttribLocation(bprog, 'aUV'), col: g.getAttribLocation(bprog, 'aCol'), kind: g.getAttribLocation(bprog, 'aKind'), dim: g.getAttribLocation(bprog, 'aDim') };
+    const mesh = buildBuildingMesh(), bvbo = g.createBuffer(), bibo = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, bvbo); g.bufferData(g.ARRAY_BUFFER, mesh.data, g.STATIC_DRAW);
+    g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, bibo); g.bufferData(g.ELEMENT_ARRAY_BUFFER, mesh.idx, g.STATIC_DRAW);
+    return { g, prog, uni, aPos, aNor, chunks, lods, skVbo, skIbo, skCount: skIdx.length, bprog, bu, ba, bvbo, bibo, bcount: mesh.idx.length };
   } catch (e) {
     console.warn('The WebGL ground could not start; using the flat-colour ground.', e);
     return null;
@@ -4966,6 +5132,23 @@ function drawTerrainGL(eye, cr, cu, cf, hazeRGB, L) {
     bind(c.vbo, lod.ibo);
     g.drawElements(g.TRIANGLES, lod.count, g.UNSIGNED_SHORT, 0);
   }
+  // buildings
+  g.useProgram(T.bprog);
+  const b = T.bu;
+  g.uniform3fv(b.uEye, eye); g.uniform3fv(b.uR, cr); g.uniform3fv(b.uU, cu); g.uniform3fv(b.uF, cf);
+  g.uniform1f(b.uFocal, F); g.uniform1f(b.uHalfW, W / 2); g.uniform1f(b.uHalfH, H / 2); g.uniform1f(b.uNear, NEAR); g.uniform1f(b.uFar, 40000);
+  g.uniform3fv(b.uSun, sun);
+  g.uniform3f(b.uHaze, hazeRGB[0] / 255, hazeRGB[1] / 255, hazeRGB[2] / 255);
+  g.uniform1f(b.uDim, L); g.uniform1f(b.uNight, clamp((0.5 - L) * 2.5, 0, 1)); g.uniform1f(b.uFogStart, FOG_START); g.uniform1f(b.uFogEnd, fogEnd);
+  g.bindBuffer(g.ARRAY_BUFFER, T.bvbo);
+  const ST = 56, A = T.ba;
+  for (const [loc, size, off] of [[A.pos, 3, 0], [A.nor, 3, 12], [A.uv, 2, 24], [A.col, 3, 32], [A.kind, 1, 44], [A.dim, 2, 48]]) {
+    g.enableVertexAttribArray(loc); g.vertexAttribPointer(loc, size, g.FLOAT, false, ST, off);
+  }
+  g.bindBuffer(g.ELEMENT_ARRAY_BUFFER, T.bibo);
+  g.drawElements(g.TRIANGLES, T.bcount, g.UNSIGNED_SHORT, 0);
+  // leave the ground's attributes the way the next frame expects them
+  for (const loc of [A.pos, A.nor, A.uv, A.col, A.kind, A.dim]) if (loc !== T.aPos && loc !== T.aNor) g.disableVertexAttribArray(loc);
 }
 // true when a hill stands between the eye and a point, so a road or tree behind it is not drawn on top of the hill
 function hiddenByLand(eye, pt) {
