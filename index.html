@@ -278,6 +278,8 @@ Space       brake (on ground)
 G           gear up / down (up only in the air)
 [ / ]       flaps up / down
 P           autopilot: hold heading and altitude
+I           ILS autoland: lines up with the runway ahead and flies the glide slope down (gear down first)
+Z           pre-flight checklist
 O           photo: saves a picture of the view
 K           restart the engine after a failure
 Y           chat with the pilots online
@@ -2854,6 +2856,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyC' && !e.repeat) view = (view + 1) % VIEW_NAMES.length;
   if (e.code === 'KeyG' && !e.repeat) toggleGear();
   if (e.code === 'KeyP' && !e.repeat) toggleAutopilot();
+  if (e.code === 'KeyI' && !e.repeat) toggleILS();
+  if (e.code === 'KeyZ' && !e.repeat) checklistOn = !checklistOn;
   if (e.code === 'KeyO' && !e.repeat) snapRequested = true;
   if (e.code === 'KeyJ' && !e.repeat) toggleCruise();
   if (e.code === 'KeyK' && !e.repeat && plane.engineOut) { plane.engineOut = false; flashNote('ENGINE RESTARTED'); }
@@ -3330,6 +3334,28 @@ function toggleGear() {
   p.gear = !p.gear;
 }
 // Autopilot holds the heading and altitude it was engaged at, and only works in the air.
+// ILS autoland: with the gear down and a runway ahead, the autopilot follows the centre line and the 3 degree glide slope, cuts the power
+// in the flare and lets the plane settle onto the runway.
+function toggleILS() {
+  const p = plane;
+  if (p.model.heli) { flashNote('NO AUTOPILOT IN A HELICOPTER'); return; }
+  if (p.ap && p.ap.ils) { p.ap = null; flashNote('ILS AUTOLAND OFF'); return; }
+  if (p.onGround || p.crashed) return;
+  // the runway the plane is lined up on: pointing roughly along it, in front of it, and close to its centre line
+  let q = null;
+  AIRPORTS.forEach((a, i) => {
+    const r = approachPoints(a, i);
+    const dx = p.pos[0] - r.TD[0], dz = p.pos[2] - r.TD[1], along = dx * r.ux + dz * r.uz, across = dx * r.uz - dz * r.ux;
+    if (along > -300 || along < -9000 || Math.abs(across) > 1800 || Math.abs(wrapPi(p.yaw - r.end.hdg)) > 0.6) return;
+    const score = Math.abs(across) + 0.1 * -along;
+    if (!q || score < q.score) q = { ...r, score };
+  });
+  if (!q) { flashNote('NO RUNWAY AHEAD: POINT AT AN AIRPORT, WITHIN 9 KM'); return; }
+  if (!p.gear) { flashNote('GEAR DOWN FIRST (G)'); return; }
+  p.ap = { yaw: q.end.hdg, alt: p.pos[1], ils: { hdg: q.end.hdg, ux: q.ux, uz: q.uz, TD: q.TD, gy: q.gy } };
+  flashNote(`ILS AUTOLAND: RUNWAY ${q.end.num}`);
+}
+let checklistOn = true;
 function toggleAutopilot() {
   const p = plane;
   if (p.model.heli) { flashNote('NO AUTOPILOT IN A HELICOPTER'); return; }
@@ -3667,10 +3693,24 @@ function update(dt) {
     if (Math.hypot(dx, dz) < 300) p.ap = null;
     else p.ap.yaw = Math.atan2(dx, dz);
   }
+  if (p.ap && p.ap.ils) {
+    const I = p.ap.ils, dx = p.pos[0] - I.TD[0], dz = p.pos[2] - I.TD[1];
+    const along = dx * I.ux + dz * I.uz, across = dx * I.uz - dz * I.ux, run = -along;
+    p.ap.yaw = I.hdg - clamp(across / 900, -0.45, 0.45) * (run > 150 ? 1 : 0.3);
+    const floor = I.gy + p.model.gearLen, h = p.pos[1] - floor;
+    const slope = floor + Math.max(0, run) * 0.0524;                      // the 3 degree glide path
+    // fly the flight-path angle: follow the glide path, then round out (flare) in the last metres
+    const flare = run < 350 && h < 14;
+    p.ap.pc = flare ? -Math.min(0.0524, Math.max(0, h) * 0.06 + 0.012) : clamp(-0.0524 + (slope - p.pos[1]) * 0.0025, -0.12, 0.08);
+    p.ap.alt = p.pos[1];
+    const target = p.model.stall * 1.35;
+    p.throttle = clamp(p.throttle + ((flare || run < 100) ? -0.5 : (target - p.speed) * 0.25) * dt, 0, 1);
+    if (run < -400) p.ap = null;
+  }
   if (p.ap) {
     const rollCmd = clamp(-wrapPi(p.ap.yaw - p.yaw), -0.45, 0.45);
     rollIn = clamp((p.roll - rollCmd) * 3, -1, 1);
-    const pitchCmd = clamp((p.ap.alt - p.pos[1]) * 0.004, -0.2, 0.2);
+    const pitchCmd = p.ap.ils ? p.ap.pc : clamp((p.ap.alt - p.pos[1]) * 0.004, -0.2, 0.2);
     pitchIn = clamp((pitchCmd - p.pitch) * 3, -1, 1);
   }
 
@@ -5086,6 +5126,28 @@ function drawMinimap() {
 }
 
 // Aircraft systems under the model panel: gear, flaps, autopilot, lights, sound, height, speed, weather and camera.
+function drawChecklist() {
+  const p = plane;
+  if (!pilot || !checklistOn || homeOpen || p.crashed || !p.onGround || p.speed > 4 || p.model.heli) return;
+  const big = (CAPACITY[p.model.name] || 0) > 20;
+  const items = [
+    ['FUEL OVER 25%', p.fuel > 0.25],
+    ['ENGINE RUNNING', !p.engineOut],
+    ['LIGHTS ON (L)', lightsOn],
+    ['GEAR DOWN (G)', p.gear],
+    ...(big ? [['FLAPS FOR TAKE-OFF (])', p.flaps >= 1]] : []),
+    ['TOWER CLEARANCE', !!(tower && tower.tkSaid) || !tower],
+    ['THROTTLE UP (SHIFT)', p.throttle > 0.5]
+  ];
+  const x = W - 290, y = 76, w = 270, h = 28 + items.length * 20;
+  ctx.fillStyle = 'rgba(8,24,44,0.72)'; ctx.fillRect(x, y, w, h);
+  ctx.font = 'bold 12px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#9fe6ff'; ctx.fillText('PRE-FLIGHT CHECKLIST  (Z: hide)', x + 10, y + 18);
+  items.forEach(([t, ok], k) => {
+    ctx.fillStyle = ok ? '#6dff9a' : '#ffd23f';
+    ctx.fillText((ok ? '[x] ' : '[ ] ') + t, x + 10, y + 40 + k * 20);
+  });
+}
 function drawStatus() {
   const p = plane, X = 16, Y = 130, ROW = 16;
   const agl = (p.pos[1] - terrainAt(p.pos[0], p.pos[2]) - (p.gear ? p.model.gearLen : 0)) * 3.281;
@@ -6463,6 +6525,7 @@ function frame(now) {
   drawILS();
   drawHUD(now);
   drawStatus();
+  drawChecklist();
   drawCruise();
   drawRain(now);
   drawMinimap();
