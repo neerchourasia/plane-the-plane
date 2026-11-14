@@ -1866,6 +1866,24 @@ function drawRadio() {
 // ---------- flight school: guided lessons that check each step for you
 const LESSONS = [
   {
+    id: 'first', name: 'First flight: take off, fly, land',
+    setup: l => { resetPlane(1); l.y0 = undefined; },
+    steps: [
+      { text: 'Welcome aboard. Push the throttle up: hold Shift, or press 9 for full power', ok: p => p.throttle >= 0.8 },
+      { text: 'Roll down the runway. The VR number on the left is your take-off speed', ok: p => p.speed >= stallSpeed(p) * 1.15 },
+      { text: 'Pull back gently on the stick: hold S (or the up arrow)', ok: p => !p.onGround },
+      { text: 'Raise the landing gear: press G', ok: p => !p.gear },
+      { text: 'Climb to 200 m. Keep the nose a little above the horizon', ok: p => p.pos[1] >= 200 },
+      { text: 'Turn: bank with A or D until you have turned about 90 degrees', ok: (p, l) => { if (l.y0 === undefined) l.y0 = p.yaw; return Math.abs(wrapPi(p.yaw - l.y0)) >= 1.4; } },
+      { text: 'Level the wings: release A and D', ok: p => Math.abs(p.roll) < 0.1 },
+      { text: 'Switch on the autopilot: press P. It holds your heading and height', ok: p => !!p.ap },
+      { text: 'Take control back: press P again', ok: p => !p.ap },
+      { text: 'Head back to the airport. The gold arrow and the minimap show the way', ok: p => Math.hypot(p.pos[0], p.pos[2] + 400) < 1800 },
+      { text: 'Prepare to land: gear down (G) and flaps down (])', ok: p => p.gear && p.flaps >= 1 },
+      { text: 'Line up with the runway and come down gently. Cut the throttle near the ground', ok: p => p.onGround && Math.abs(p.pos[0]) < 60 }
+    ]
+  },
+  {
     id: 'takeoff', name: 'Takeoff',
     setup: () => { resetPlane(1); },
     steps: [
@@ -3093,7 +3111,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyT' && !e.repeat) return toggleTeleport();
   keys[e.code] = true;
   if (PREVENT.includes(e.code)) e.preventDefault();
-  if (e.code === 'KeyR' && !e.repeat) resetPlane(plane.fuel);   // restarting keeps the fuel you have
+  if (e.code === 'KeyR' && !e.repeat) { resetPlane(plane.fuel); lesson = null; }   // R also leaves a lesson   // restarting keeps the fuel you have
   if (e.code === 'KeyN' && !e.repeat) toggleNav();
   if (e.code === 'KeyV' && !e.repeat) startFlip();
   if (e.code === 'KeyX' && !e.repeat) startBarrel();
@@ -7172,7 +7190,15 @@ document.getElementById('loginNew').onclick = () => submitLogin(true);
 document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(false); });
 document.getElementById('switchPilot').onclick = signOut;
 // home screen buttons
-document.getElementById('homeFly').onclick = hideHome;
+document.getElementById('homeFly').onclick = () => {
+  hideHome();
+  // a brand new pilot is offered the guided first flight once
+  if (save && !save.tutorialOffered && !(save.lessons || []).length && !(save.totals && save.totals.flights)) {
+    save.tutorialOffered = true; writeSave();
+    startLesson(0);
+    flashNote('NEW PILOT? FOLLOW THE STEPS AT THE TOP. PRESS R TO LEAVE THE LESSON');
+  }
+};
 document.getElementById('homeHangar').onclick = () => { hideHome(); toggleHangar(); };
 document.getElementById('homeLivery').onclick = () => { hideHome(); toggleLivery(); };
 document.getElementById('homeSwitch').onclick = signOut;
