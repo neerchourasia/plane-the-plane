@@ -2473,6 +2473,13 @@ function drawAirportLabels() {
 // The runway end in use (into the wind) is the one that gets lights. The glide slope is 3 degrees to a point 300 m in.
 const GLIDE_DEG = 3;
 function approachPoints(a, i) {
+  // the runway in use changes only with the wind, so keep the answer for half a second
+  const now = performance.now();
+  if (a._ap && now - a._apT < 500) return a._ap;
+  a._ap = approachPoints2(a, i); a._apT = now;
+  return a._ap;
+}
+function approachPoints2(a, i) {
   const end = bestEnd(a, i), ux = Math.sin(end.hdg), uz = Math.cos(end.hdg), hl = a.len / 2;
   const T = [a.x - ux * hl, a.z - uz * hl];               // the threshold
   const TD = [T[0] + ux * 300, T[1] + uz * 300];          // the aiming point
@@ -2504,7 +2511,7 @@ function drawApproach() {
     ctx.beginPath(); ctx.arc(s[0], s[1], clamp(F * r0 / s[2], 1.2, 5), 0, 6.3); ctx.fill();
   };
   AIRPORTS.forEach((a, i) => {
-    if (Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) > 9000) return;
+    if (Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) > fogEnd + 600) return;   // farther than the haze: not visible anyway
     const q = approachPoints(a, i);
     // approach lights: a line of white lights leading in to the threshold, flashing in sequence
     for (let k = 1; k <= 8; k++) {
@@ -3264,7 +3271,7 @@ function drawLiveryPreview() {
     g.linkProgram(prog);
     lvGL = { g, prog, buf: g.createBuffer(), loc: {}, uni: {} };
     for (const n of ['aPos', 'aNor', 'aCol', 'aUV']) lvGL.loc[n] = g.getAttribLocation(prog, n);
-    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uDim', 'uHasTex', 'uTex']) lvGL.uni[n] = g.getUniformLocation(prog, n);
+    for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uDim', 'uHasTex', 'uTex', 'uPos', 'uRt', 'uUp', 'uFw']) lvGL.uni[n] = g.getUniformLocation(prog, n);
   }
   const { g } = lvGL;
   // every face of the model, painted with the draft livery and its pictures
@@ -4070,14 +4077,8 @@ function skyFlight(k, t) {
   return { m: r.m, paint: r.paint, x, y: Math.max(gy, terrainAt(x, z) + 60 + alt), z, yaw: r.yaw, pitch: clamp(Math.atan(slope), -0.12, 0.14), up: alt > 20 };
 }
 function pushModelTris(st) {
-  const pos = [st.x, st.y, st.z];
-    const sy = Math.sin(st.yaw), cy = Math.cos(st.yaw), sp = Math.sin(st.pitch), cp = Math.cos(st.pitch);
-    // forward, up and right of the plane for its heading and nose-up angle
-    const f = [sy * cp, sp, cy * cp], rt = [cy, 0, -sy], up = [-sp * sy, cp, -sp * cy];
-    const tw = v => [pos[0] + rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], pos[1] + rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], pos[2] + rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
-    const td = v => [rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
-    for (const face of st.m.mesh) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: paintColor(st.paint, face) });
-    if (!st.up) for (const face of st.m.gear) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: face.col });
+  const sy = Math.sin(st.yaw), cy = Math.cos(st.yaw), sp = Math.sin(st.pitch), cp = Math.cos(st.pitch);
+  planeInstances.push({ m: st.m, paint: st.paint, pos: [st.x, st.y, st.z], f: [sy * cp, sp, cy * cp], rt: [cy, 0, -sy], up: [-sp * sy, cp, -sp * cy], gearUp: !!st.up });
 }
 // ---------- airport props: a jet bridge at every stand, a fuel truck beside each parked plane, and service vans driving along the apron
 function pushBox(cx, y0, cz, yaw, lx, ly, lz, col) {
@@ -4259,6 +4260,7 @@ function drawPoly(cam, fill) {
 function render() {
   ctx = sceneCtx;
   planeTris.length = 0;
+  planeInstances.length = 0;
   const p = plane, ax = axes(p);
   let eye, target, camUp;
   const back = Math.max(45, modelExtent(p.model).len * 1.5 + 12);   // bigger planes sit further back
@@ -5295,14 +5297,17 @@ const planeTris = [];   // filled each frame by render(): {pts, vn, col}
 const PLANE_VS = `
 attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol; attribute vec2 aUV;
 uniform vec3 uEye, uR, uU, uF;
+uniform vec3 uPos, uRt, uUp, uFw;   // placement of a cached model: its position and the three axes (identity for ordinary triangles)
 uniform float uFocal, uHalfW, uHalfH, uNear, uFar;
 varying vec3 vN; varying vec3 vC; varying vec3 vW; varying vec2 vUV;
 void main() {
-  vec3 d = aPos - uEye;
+  vec3 wp = uPos + uRt * aPos.x + uUp * aPos.y + uFw * aPos.z;
+  vec3 wn = uRt * aNor.x + uUp * aNor.y + uFw * aNor.z;
+  vec3 d = wp - uEye;
   vec3 c = vec3(dot(d, uR), dot(d, uU), dot(d, uF));
   float z = (c.z - uNear) / (uFar - uNear) * 2.0 - 1.0;
   gl_Position = vec4(c.x * uFocal / uHalfW, c.y * uFocal / uHalfH, z * c.z, c.z);
-  vN = aNor; vC = aCol; vW = aPos; vUV = aUV;
+  vN = wn; vC = aCol; vW = wp; vUV = aUV;
 }`;
 const PLANE_FS = `
 precision highp float;
@@ -5350,7 +5355,7 @@ if (gl) {
   gl.enable(gl.DEPTH_TEST);
   planeBuf = gl.createBuffer();
   for (const n of ['aPos', 'aNor', 'aCol', 'aUV']) planeLoc[n] = gl.getAttribLocation(planeProg, n);
-  for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uDim', 'uHasTex', 'uTex']) planeUni[n] = gl.getUniformLocation(planeProg, n);
+  for (const n of ['uEye', 'uR', 'uU', 'uF', 'uFocal', 'uHalfW', 'uHalfH', 'uNear', 'uFar', 'uSun', 'uDim', 'uHasTex', 'uTex', 'uPos', 'uRt', 'uUp', 'uFw']) planeUni[n] = gl.getUniformLocation(planeProg, n);
 }
 // uploaded pictures ("decals"): the picture is decoded once, then each WebGL context keeps its own texture
 const decals = {};   // data URL -> { img, ready, aspect, tex: Map(context -> texture) }
@@ -5437,7 +5442,24 @@ function packTris(tris) {
 // draws every triangle of the aircraft into the WebGL layer, from the same camera as the scene
 // draws triangles with the plane shader. Each triangle may carry a picture (t.pic, a data URL) and t.uvFor(decal) for its coordinates.
 // One texture is bound at a time, so triangles are drawn in one pass per picture.
-function drawPassesGL(g, s, tris, cam) {
+// ---------- cached models: a parked, taxiing or flying plane is packed once into a buffer on the graphics card, then drawn with its own position and
+// direction. Rebuilding thousands of triangles for every plane in every frame was most of the frame time.
+const planeInstances = [];   // filled each frame by pushModelTris: { m, paint, pos, rt, up, f, gearUp }
+const modelCache = new Map();
+function cachedModelBuffer(g, m, paint, gear) {
+  const key = (gear ? 'gear|' : '') + m.name + '|' + (paint && !gear ? [paint.body, paint.stripe, paint.wing, paint.fin].join(';') : '');
+  let c = modelCache.get(key);
+  if (!c) {
+    const faces = (gear ? m.gear : m.mesh).map(f => ({ pts: f.pts, vn: f.vn, col: gear ? f.col : paintColor(paint, f) }));
+    const { data, count } = packTris(faces);
+    const buf = g.createBuffer();
+    g.bindBuffer(g.ARRAY_BUFFER, buf); g.bufferData(g.ARRAY_BUFFER, data, g.STATIC_DRAW);
+    c = { buf, count };
+    modelCache.set(key, c);
+  }
+  return c;
+}
+function drawPassesGL(g, s, tris, cam, instances) {
   g.useProgram(s.prog);
   g.bindBuffer(g.ARRAY_BUFFER, s.buf);
   const stride = 44;   // per vertex: position, normal, colour, picture coordinates
@@ -5457,6 +5479,8 @@ function drawPassesGL(g, s, tris, cam) {
   g.uniform3fv(s.uni.uSun, sun);
   g.uniform1f(s.uni.uDim, cam.dim);
   g.uniform1i(s.uni.uTex, 0);
+  const place = (pos, rt, up, f) => { g.uniform3fv(s.uni.uPos, pos); g.uniform3fv(s.uni.uRt, rt); g.uniform3fv(s.uni.uUp, up); g.uniform3fv(s.uni.uFw, f); };
+  place([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
   const groups = new Map();
   for (const t of tris) {
     const k = t.pic || '';
@@ -5471,15 +5495,30 @@ function drawPassesGL(g, s, tris, cam) {
     g.bufferData(g.ARRAY_BUFFER, data, g.DYNAMIC_DRAW);
     g.drawArrays(g.TRIANGLES, 0, count);
   }
+  if (instances && instances.length) {
+    g.uniform1f(s.uni.uHasTex, 0);
+    for (const it of instances) {
+      place(it.pos, it.rt, it.up, it.f);
+      for (const gear of (it.gearUp ? [false] : [false, true])) {
+        const c = cachedModelBuffer(g, it.m, it.paint, gear);
+        g.bindBuffer(g.ARRAY_BUFFER, c.buf);
+        g.vertexAttribPointer(s.loc.aPos, 3, g.FLOAT, false, stride, 0); g.vertexAttribPointer(s.loc.aNor, 3, g.FLOAT, false, stride, 12);
+        g.vertexAttribPointer(s.loc.aCol, 3, g.FLOAT, false, stride, 24); g.vertexAttribPointer(s.loc.aUV, 2, g.FLOAT, false, stride, 36);
+        g.drawArrays(g.TRIANGLES, 0, c.count);
+      }
+    }
+    place([0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]);
+    g.bindBuffer(g.ARRAY_BUFFER, s.buf);
+  }
 }
 // draws every triangle of the aircraft into the WebGL layer, from the same camera as the scene
 function drawPlaneGL({ eye, cr, cu, cf }) {
   if (!gl) return;
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  if (!planeTris.length) return;
+  if (!planeTris.length && !planeInstances.length) return;
   drawPassesGL(gl, { prog: planeProg, buf: planeBuf, loc: planeLoc, uni: planeUni }, planeTris,
-    { eye, cr, cu, cf, focal: F, halfW: W / 2, halfH: H / 2, near: NEAR, far: 20000, dim: 0.3 + 0.7 * daylight() });
+    { eye, cr, cu, cf, focal: F, halfW: W / 2, halfH: H / 2, near: NEAR, far: 20000, dim: 0.3 + 0.7 * daylight() }, planeInstances);
 }
 
 // ---------- the ground in WebGL: one smooth mesh of the whole height map, lit per pixel, with a fine texture made in the shader
