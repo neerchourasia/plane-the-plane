@@ -1653,6 +1653,7 @@ async function loadBoard() {
     box.append(boardList('Longest flight', b.best, r => `${who(r)} - ${r.best.toFixed(1)} km`));
     box.append(boardList('Most back flips', b.flips, r => `${who(r)} - ${r.flips}`));
     if (b.weekly && b.weekly.length) box.append(boardList('This week: ' + weekFocus().text, b.weekly, r => `${who(r)} - ${r.score} ${weekFocus().unit}`));
+    if (b.formation && b.formation.length) box.append(boardList('Formation flying', b.formation, r => `${who(r)} - ${Math.round(r.formation / 60)} min`));
     if (b.landing) box.append(boardList('Landing score', b.landing, r => `${who(r)} - ${r.landing} points`));
     if (b.butters) box.append(boardList('Butter landings', b.butters, r => `${who(r)} - ${r.butters}`));
     box.append(boardList('Daily missions today', b.daily, r => `${who(r)} - ${r.daily} of 3`));
@@ -2084,6 +2085,8 @@ function nearField(x, z) {
 // ---------- live pilots: other signed-in pilots show up as moving markers. Positions come from the server every 3 s
 // and are carried forward at the pilot's speed in between.
 let others = [];
+const pilotTrails = {};
+const isFriend = o => ((save && save.friends) || []).some(f => f === String(o.name).toLowerCase() || f === String(o.callsign || '').toLowerCase());
 let pendingSay = '', lastChatT = 0, chatLog = [], chatOpen = false;
 function openChat() {
   const box = document.getElementById('chatBox');
@@ -2103,7 +2106,19 @@ function closeChat() {
   const box = document.getElementById('chatBox');
   box.addEventListener('keydown', e => {
     e.stopPropagation();   // typing must not fly the plane
-    if (e.key === 'Enter') { pendingSay = box.value.trim(); closeChat(); if (pendingSay) syncPresence(); }
+    if (e.key === 'Enter') {
+      const text = box.value.trim();
+      // chat commands: /friend NAME adds a friend (their plane gets a star), /unfriend NAME removes one
+      const m = /^\/(friend|unfriend)\s+(\S{1,20})$/i.exec(text);
+      if (m) {
+        save.friends = save.friends || [];
+        const who = m[2].toLowerCase();
+        if (m[1].toLowerCase() === 'friend') { if (!save.friends.includes(who)) save.friends.push(who); flashNote('FRIEND ADDED: ' + m[2].toUpperCase()); }
+        else { save.friends = save.friends.filter(f => f !== who); flashNote('FRIEND REMOVED: ' + m[2].toUpperCase()); }
+        writeSave(); closeChat(); return;
+      }
+      pendingSay = text; closeChat(); if (pendingSay) syncPresence();
+    }
     else if (e.key === 'Escape') closeChat();
   });
   box.addEventListener('keyup', e => e.stopPropagation());
@@ -2132,6 +2147,7 @@ function checkFormation(dt) {
   });
   if (!together) { formT = 0; return; }
   formT += dt;
+  save.formationSecs = (save.formationSecs || 0) + dt;
   if (formT >= 10 && formCooldown === 0) {
     save.coins += 25;
     writeSave();
@@ -2153,6 +2169,12 @@ async function syncPresence() {
     });
     const t0 = performance.now();
     others = (data.others || []).map(o => ({ ...o, t0 }));
+    // remember where each pilot has been, for their trails in the sky
+    for (const o of others) {
+      const tr = (pilotTrails[o.name] = pilotTrails[o.name] || []);
+      tr.push([o.x, o.y, o.z]); if (tr.length > 14) tr.shift();
+    }
+    for (const k of Object.keys(pilotTrails)) if (!others.some(o => o.name === k)) delete pilotTrails[k];
     for (const m of data.chat || []) {
       lastChatT = Math.max(lastChatT, m.t);
       chatLog.push({ who: m.callsign || m.name, text: m.text, until: performance.now() + 20000 });
@@ -2181,11 +2203,20 @@ function drawPilots() {
     if (wl && wr) { ctx.beginPath(); ctx.moveTo(wl[0], wl[1]); ctx.lineTo(wr[0], wr[1]); ctx.stroke(); }
     ctx.fillStyle = 'rgba(190,245,255,0.95)';
     ctx.textAlign = 'center';
-    ctx.fillText(`${o.callsign || o.name} · ${o.plane}${o.race ? ' · RACING ' + o.race.toUpperCase() : ''}`, s[0], s[1] - 14);
+    // a faint trail behind every pilot, brighter for friends
+    const tr = pilotTrails[o.name];
+    if (tr && tr.length > 1) {
+      ctx.strokeStyle = isFriend(o) ? 'rgba(255,215,80,0.7)' : 'rgba(150,230,255,0.4)'; ctx.lineWidth = 2; ctx.beginPath();
+      let first = true;
+      for (const q of tr) { const ps = wildProject(q); if (!ps) { first = true; continue; } first ? ctx.moveTo(ps[0], ps[1]) : ctx.lineTo(ps[0], ps[1]); first = false; }
+      ctx.stroke();
+    }
+    ctx.fillStyle = isFriend(o) ? '#ffd966' : 'rgba(190,245,255,0.95)';
+    ctx.fillText(`${isFriend(o) ? '★ ' : ''}${o.callsign || o.name} · ${o.plane}${o.race ? ' · RACING ' + o.race.toUpperCase() : ''}`, s[0], s[1] - 14);
   }
   ctx.textAlign = 'right';
   ctx.fillStyle = '#8fb3c9';
-  ctx.fillText(`PILOTS ONLINE ${others.length + 1}`, W - 16, 34);
+  ctx.fillText(`PILOTS ONLINE ${others.length + 1}${others.some(isFriend) ? '   FRIENDS ' + others.filter(isFriend).length : ''}`, W - 16, 34);
   ctx.textAlign = 'start';
 }
 

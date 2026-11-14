@@ -32,11 +32,12 @@ export default async function handler(req, res) {
       flips: Number(save.flips) || 0,
       landing: Number(save.landingScore) || 0,
       butters: Number(save.butters) || 0,
+      formation: Number(save.formationSecs) || 0,
       score: save.weekly && save.weekly.week === week ? Number(save.weekly.score) || 0 : 0,
       daily: save.daily && save.daily.date === day ? (save.daily.done || []).length : 0
     });
   }
   const top = key => rows.filter(x => x[key] > 0).sort((a, b) => b[key] - a[key]).slice(0, 10);
   for (const id of Object.keys(races)) races[id] = races[id].sort((a, b) => a.time - b.time).slice(0, 5);
-  res.json({ strips, weekly: top('score'), best: top('best'), flips: top('flips'), landing: top('landing'), butters: top('butters'), daily: top('daily'), races });
+  res.json({ formation: top('formation'), strips, weekly: top('score'), best: top('best'), flips: top('flips'), landing: top('landing'), butters: top('butters'), daily: top('daily'), races });
 }
