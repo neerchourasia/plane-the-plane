@@ -245,6 +245,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
 <button id="soundBtn" title="Sound on or off (M)">SOUND ON</button>
 <button id="gfxBtn" title="Graphics: auto lowers the detail on a slow device">GFX AUTO</button>
 <button id="setBtn" title="Settings (Esc)">SETTINGS</button>
+<div id="loading" style="position:fixed;inset:0;z-index:50;background:#08121f;color:#cfe8f5;display:flex;align-items:center;justify-content:center;font:16px ui-monospace,Menlo,Consolas,monospace;text-align:center">Plane the Plane<br><span style="font-size:12px;opacity:.7">building the world...</span></div>
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
@@ -348,7 +349,9 @@ const fxCtx = fxCanvas.getContext('2d');
 let W = 0, H = 0;
 // graphics quality: "auto" watches the frame rate and lowers the detail on a slow device; "low" and "high" are fixed
 let gfxMode = 'auto', gfxLow = false;
-try { gfxMode = localStorage.getItem('plane-the-plane-gfx') || 'auto'; } catch (e) { /* storage blocked */ }
+// a phone or tablet starts on low detail (smaller picture, fewer trees); the GFX button changes it
+const isPhoneLike = matchMedia('(pointer: coarse)').matches;
+try { gfxMode = localStorage.getItem('plane-the-plane-gfx') || (isPhoneLike ? 'low' : 'auto'); } catch (e) { gfxMode = isPhoneLike ? 'low' : 'auto'; }
 const lowGfx = () => gfxMode === 'low' || (gfxMode === 'auto' && gfxLow);
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, lowGfx() ? 1 : 2) * (lowGfx() ? 0.75 : 1);
@@ -6486,7 +6489,7 @@ void main() {
 // ---------- trees in WebGL: a forest map shared by the ground and the trees, real 3D conifers and broadleaf trees near the
 // plane, and cut-out billboards farther away. Tens of thousands of trees, with wind in the crowns.
 function buildForestMap() {
-  const SZ = Math.round(256 * WS), tex = new Uint8Array(SZ * SZ * 4), heights = new Float32Array(SZ * SZ);
+  const SZ = Math.round((lowGfx() ? 176 : 256) * WS), tex = new Uint8Array(SZ * SZ * 4), heights = new Float32Array(SZ * SZ);
   const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   const treeLine = LAND.rockH > 9000 ? 650 : LAND.rockH * 0.95;
   for (let tz = 0; tz < SZ; tz++) {
@@ -6550,7 +6553,7 @@ function buildTreeData(map) {
   const NC = Math.round(12 * WS), CH = 1000;   // chunks of 1 km
   const conif = Array.from({ length: NC * NC }, () => []), broad = Array.from({ length: NC * NC }, () => []);
   const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1, everest: 0.6, fjord: 0.75, fuji: 0.8, iceland: 0.25, dolomites: 0.85, patagonia: 0.4 })[REGION.id] : 0.45;
-  const STEP = 23, G = Math.floor(2 * TER_HALF / STEP);
+  const STEP = lowGfx() ? 31 : 23, G = Math.floor(2 * TER_HALF / STEP);   // fewer trees on a slow device
   for (let gi = 0; gi < G; gi++) {
     for (let gj = 0; gj < G; gj++) {
       const x = -TER_HALF + (gi + hash2(gi, gj + 71)) * STEP, z = -TER_HALF + (gj + hash2(gi + 17, gj)) * STEP;
@@ -7459,6 +7462,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (replay) { playReplayFrame(dt); requestAnimationFrame(frame); return; }
+  if (!lastFrameAt) { const ld = document.getElementById('loading'); if (ld) ld.remove(); }
   if (lastFrameAt) fps += (1000 / Math.max(1, now - lastFrameAt) - fps) * 0.1;
   // automatic graphics: a frame rate under 22 for five seconds in the air lowers the detail (resolution, draw distance, planes, props)
   if (gfxMode === 'auto' && !gfxLow && pilot && !homeOpen && lastFrameAt && !document.hidden) {
