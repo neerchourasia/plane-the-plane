@@ -3315,6 +3315,11 @@ function update(dt) {
 
   p.throttle = clamp(p.throttle + throttleIn * 0.5 * dt, 0, 1);
   p.fuel = Math.max(0, p.fuel - (0.0011 * p.throttle + 0.00015 + (p.leak ? 0.0025 : 0)) * dt);   // full throttle empties the tank in about 13 minutes, idle in about 110
+  // an empty tank on the ground: say so (there is no thrust without fuel), and lend a little fuel when there are no coins to buy it
+  if (p.fuel <= 0 && p.onGround && p.speed < 5 && !p.crashed) {
+    if (save.coins <= 0) { p.fuel = 0.1; flashNote('EMPTY TANK AND NO COINS: A LITTLE FUEL WAS LENT TO YOU'); }
+    else if (performance.now() > noteUntil) flashNote('OUT OF FUEL: PRESS F TO REFUEL (1 COIN PER 1%)');
+  }
   if (p.flip) {
     const step = 2.0 * dt;   // about three seconds for the whole loop
     p.pitch += step;
