@@ -10,6 +10,8 @@
   canvas{display:block;position:fixed;left:0;top:0;width:100vw;height:100vh}
   #c,#tgl,#obj,#gl{filter:contrast(1.06) saturate(1.1)}
   #vignette{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 58%,rgba(0,0,0,0.26) 100%)}
+  #soundBtn{position:fixed;top:30px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
+  #soundBtn:hover{background:rgba(0,0,0,.65)}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
   #hangar .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;min-width:320px;max-height:92vh;overflow:auto}
@@ -222,6 +224,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <p class="hint">Fly takes you to the runway. Press Esc to come back here from the air.</p>
   </div>
 </div>
+<button id="soundBtn" title="Sound on or off (M)">SOUND ON</button>
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
@@ -2406,7 +2409,15 @@ for (let i = 0; i < 160; i++) {
 let plane;
 let view = 0; // 0 = chase, 1 = cockpit, 2 = side
 const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE'];
-let lightsOn = true, soundOn = true;
+let lightsOn = true, soundOn = localStorage.getItem('plane-the-plane-sound') !== 'off';
+function setSound(on) {
+  soundOn = on;
+  try { localStorage.setItem('plane-the-plane-sound', on ? 'on' : 'off'); } catch (e) { /* not saved */ }
+  const b = document.getElementById('soundBtn');
+  if (b) { b.textContent = on ? 'SOUND ON' : 'SOUND OFF'; b.style.opacity = on ? '1' : '0.7'; }
+}
+document.getElementById('soundBtn').addEventListener('click', e => { setSound(!soundOn); e.currentTarget.blur(); });
+setSound(soundOn);
 let race = null;   // the air race in progress, if any
 let cruise = false;   // fast-forward through a long-haul job's real distance
 function resetPlane(fuel = 1) {
@@ -2503,7 +2514,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyJ' && !e.repeat) toggleCruise();
   if (e.code === 'KeyK' && !e.repeat && plane.engineOut) { plane.engineOut = false; flashNote('ENGINE RESTARTED'); }
   if (e.code === 'KeyL' && !e.repeat) lightsOn = !lightsOn;
-  if (e.code === 'KeyM' && !e.repeat) soundOn = !soundOn;
+  if (e.code === 'KeyM' && !e.repeat) setSound(!soundOn);
   if (e.code === 'BracketRight' && !e.repeat) plane.flaps = Math.min(3, plane.flaps + 1);
   if (e.code === 'BracketLeft' && !e.repeat) plane.flaps = Math.max(0, plane.flaps - 1);
   // number keys set throttle directly: 1 = lowest, 9 = full, 0 = idle
