@@ -1637,7 +1637,11 @@ function bestEnd(ap, i) {
   return { hdg: use, num: rwyNum(use * RAD2DEG), wind: v, from, xwind: cross };
 }
 let radioText = '', radioUntil = 0;
-function radio(text) { radioText = text; radioUntil = performance.now() + 7000; }
+const radioQueue = [];
+function radio(text) {
+  if (performance.now() < radioUntil) { if (radioQueue.length < 3 && !radioQueue.includes(text)) radioQueue.push(text); return; }
+  radioText = text; radioUntil = performance.now() + 6000;
+}
 let tower = null;   // the airport the plane is near: { i, code, cleared }
 function updateTower() {
   const p = plane;
@@ -1651,16 +1655,28 @@ function updateTower() {
     tower = { i: best, code: a.code, cleared: false };
     radio(`${a.code} TOWER: ${windTxt}. USE RUNWAY ${end.num}`);
   }
+  const T = a.traffic, busy = T && ['lineup', 'turn', 'roll', 'rollout', 'approach'].includes(T.phase);
+  // on the ground at the airport with the throttle up: take-off clearance, or hold while another plane is on the runway
+  if (p.onGround && p.speed < 6 && p.throttle > 0.5 && Math.hypot(p.pos[0] - a.x, p.pos[2] - a.z) < a.len / 2 + 200) {
+    if (busy && T.plane) { if (!tower.holdSaid) { tower.holdSaid = true; radio(`${a.code} TOWER: HOLD POSITION, ${T.plane.call} ON THE RUNWAY`); } }
+    else if (!tower.tkSaid) { tower.tkSaid = true; tower.holdSaid = false; radio(`${a.code} TOWER: RUNWAY ${end.num} CLEARED FOR TAKE-OFF. ${windTxt}`); }
+  }
+  if (!p.onGround) tower.tkSaid = false;
   if (tower.cleared || p.onGround || !p.gear) return;
   // on the approach to the runway end in use: lined up, in front of the runway, gear down
   const ux = Math.sin(end.hdg), uz = Math.cos(end.hdg);
   const along = (p.pos[0] - a.x) * ux + (p.pos[2] - a.z) * uz, across = (p.pos[0] - a.x) * uz - (p.pos[2] - a.z) * ux;
   if (Math.abs(wrapPi(p.yaw - end.hdg)) < 0.6 && along < -a.len / 2 && along > -4500 && Math.abs(across) < 700) {
+    if (busy && T.plane && ['lineup', 'turn', 'roll', 'rollout'].includes(T.phase) && along > -2500) {
+      if (!tower.goSaid) { tower.goSaid = true; radio(`${a.code} TOWER: RUNWAY OCCUPIED BY ${T.plane.call}. GO AROUND`); }
+      return;
+    }
     tower.cleared = true;
     radio(`${a.code} TOWER: RUNWAY ${end.num} CLEARED TO LAND. ${windTxt}`);
   }
 }
 function drawRadio() {
+  if (performance.now() > radioUntil && radioQueue.length) { radioText = radioQueue.shift(); radioUntil = performance.now() + 6000; }
   if (!radioText || performance.now() > radioUntil) return;
   ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
   const w = ctx.measureText(radioText).width + 24;
@@ -3849,6 +3865,9 @@ function standsOf(a, idx) {
 // ---------- moving traffic: near the player, one plane at a time leaves its stand (pushback, taxi, line up, take off, fly away), and after a
 // while another lands, taxis in and parks. Farther away every plane simply stands.
 const TRAFFIC_RANGE = 3500;
+const AIRLINES = ['RED AIR', 'BLUE JET', 'GOLD WINGS', 'GREEN LINE', 'PURPLE AIR', 'BLACK JET', 'SUNRISE'];
+const callOf = (st, k) => AIRLINES[PARK_COLS.findIndex(c => c === st.paint.fin)] + ' ' + (100 + Math.floor(hash2(k, 99) * 890));
+function trafficCall(a, i, text) { if (tower && tower.i === i) radio(`${a.code} TOWER: ${text}`); }
 function trafficFollow(P, w, dt) {
   const dx = w.p[0] - P.x, dz = w.p[1] - P.z, d = Math.hypot(dx, dz);
   if (d < Math.max(3, w.v * dt * 1.5)) return true;
@@ -3881,11 +3900,12 @@ function trafficStep(a, i, dt) {
     if (T.t > 0) return;
     st.away = true;
     T.dir = standAlong >= 0 ? 1 : -1;
-    T.plane = { m, paint: st.paint, x: st.x, y: gy, z: st.z, yaw: st.yaw, pitch: 0, v: 0, up: false };
+    T.plane = { m, paint: st.paint, x: st.x, y: gy, z: st.z, yaw: st.yaw, pitch: 0, v: 0, up: false, call: callOf(st, i * 31 + T.n) };
+    trafficCall(a, i, `${T.plane.call}, PUSHBACK APPROVED`);
     T.way = { p: at(TAXI, standAlong), rev: true, v: 2.5 };
     T.phase = 'push';
   } else if (T.phase === 'push') {
-    if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, T.dir * (half - 80)), v: 15 }; T.phase = 'taxi'; }
+    if (trafficFollow(P, T.way, dt)) { T.way = { p: at(TAXI, T.dir * (half - 80)), v: 15 }; T.phase = 'taxi'; trafficCall(a, i, `${P.call}, TAXI TO RUNWAY ${rwyNum((T.dir > 0 ? h + Math.PI : h) * RAD2DEG)}`); }
   } else if (T.phase === 'taxi') {
     if (trafficFollow(P, T.way, dt)) { T.way = { p: at(0, T.dir * (half - 70)), v: 7 }; T.phase = 'lineup'; }
   } else if (T.phase === 'lineup') {
@@ -3893,7 +3913,7 @@ function trafficStep(a, i, dt) {
   } else if (T.phase === 'turn') {
     const diff = wrapPi(T.face - P.yaw);
     P.yaw += clamp(diff, -0.5 * dt, 0.5 * dt);
-    if (Math.abs(diff) < 0.03) { P.yaw = T.face; P.v = 0; T.phase = 'roll'; T.acc = Math.max(2.5, vr * vr / (2 * 0.6 * (a.len - 140))); }
+    if (Math.abs(diff) < 0.03) { P.yaw = T.face; P.v = 0; T.phase = 'roll'; trafficCall(a, i, `${P.call}, RUNWAY ${rwyNum(T.face * RAD2DEG)} CLEARED FOR TAKE-OFF`); T.acc = Math.max(2.5, vr * vr / (2 * 0.6 * (a.len - 140))); }
   } else if (T.phase === 'roll') {
     P.v += T.acc * dt;
     P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt;
@@ -3910,6 +3930,8 @@ function trafficStep(a, i, dt) {
     T.l = hash2(i, 60 + T.n) < 0.5 ? 1 : -1;
     const yawL = T.l > 0 ? h : h + Math.PI, start = at(0, -T.l * (half + 2600));
     T.plane = { m, paint: st.paint, x: start[0], y: gy + 143, z: start[1], yaw: yawL, pitch: -0.05, v: m.stall * 1.35, up: true, alt: 143 };
+    T.plane.call = callOf(st, i * 31 + T.n + 7);
+    trafficCall(a, i, `${T.plane.call} ON FINAL RUNWAY ${rwyNum(yawL * RAD2DEG)}, CLEARED TO LAND`);
     T.phase = 'approach';
   } else if (T.phase === 'approach') {
     const along = alongOf(P), td = -T.l * half + T.l * 140, togo = (td - along) * T.l;
