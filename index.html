@@ -285,6 +285,7 @@ G           gear up / down (up only in the air)
 P           autopilot: hold heading and altitude
 I           ILS autoland: lines up with the runway ahead and flies the glide slope down (gear down first)
 Z           pre-flight checklist
+H           photo mode: free camera, time of day, photos; F9 records an 8 second video clip
 O           photo: saves a picture of the view
 K           restart the engine after a failure
 Y           chat with the pilots online
@@ -2927,6 +2928,8 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyI' && !e.repeat) toggleILS();
   if (e.code === 'KeyZ' && !e.repeat) checklistOn = !checklistOn;
   if (e.code === 'KeyO' && !e.repeat) snapRequested = true;
+  if (e.code === 'KeyH' && !e.repeat) togglePhotoMode();
+  if (e.code === 'F9' && !e.repeat) { e.preventDefault(); startClip(); }
   if (e.code === 'KeyJ' && !e.repeat) toggleCruise();
   if (e.code === 'KeyK' && !e.repeat && plane.fire != null) {
     if (plane.throttle < 0.15) { plane.fire = null; flashNote('FIRE OUT. PRESS K AGAIN TO RESTART THE ENGINE'); } else flashNote('THROTTLE TO IDLE (0) FIRST');
@@ -4505,7 +4508,11 @@ function render() {
   const p = plane, ax = axes(p);
   let eye, target, camUp;
   const back = Math.max(45, modelExtent(p.model).len * 1.5 + 12);   // bigger planes sit further back
-  if (view === 0) {
+  if (photoMode) {
+    eye = [...photoCam.pos];
+    target = [eye[0] + Math.sin(photoCam.yaw) * Math.cos(photoCam.pitch), eye[1] + Math.sin(photoCam.pitch), eye[2] + Math.cos(photoCam.yaw) * Math.cos(photoCam.pitch)];
+    camUp = [0, 1, 0];
+  } else if (view === 0) {
     eye = add(p.pos, add(mul(ax.f, -back), mul(ax.up, back * 0.27)));
     target = add(p.pos, mul(ax.f, 10));
     camUp = norm(add(mul([0, 1, 0], 0.5), mul(ax.up, 0.5)));
@@ -6853,13 +6860,80 @@ let last = performance.now();
 let fps = 60, lastFrameAt = 0, slowSecs = 0;
 let snapRequested = false;
 // saves the scene and the plane as a PNG (the HUD is left out)
+// ---------- photo mode: the game freezes, a free camera takes over, and the time of day can be changed
+let photoMode = false;
+const photoCam = { pos: [0, 0, 0], yaw: 0, pitch: 0 };
+function togglePhotoMode() {
+  if (!pilot || homeOpen) return;
+  photoMode = !photoMode;
+  for (const k in keys) keys[k] = false;
+  if (photoMode && lastCam) {
+    const f = lastCam.cf;
+    photoCam.pos = [...lastCam.eye];
+    photoCam.yaw = Math.atan2(f[0], f[2]); photoCam.pitch = Math.asin(clamp(f[1], -1, 1));
+  }
+}
+function photoStep(dt) {
+  const sp = (down('ShiftLeft') || down('ShiftRight') ? 160 : 40) * dt, rot = 1.1 * dt;
+  const sy = Math.sin(photoCam.yaw), cy = Math.cos(photoCam.yaw), cp = Math.cos(photoCam.pitch), spn = Math.sin(photoCam.pitch);
+  const fw = (down('KeyW') ? 1 : 0) - (down('KeyS') ? 1 : 0), st = (down('KeyD') ? 1 : 0) - (down('KeyA') ? 1 : 0), ud = (down('KeyE') ? 1 : 0) - (down('KeyQ') ? 1 : 0);
+  photoCam.pos[0] += (sy * cp * fw + cy * st) * sp; photoCam.pos[1] += (spn * fw + ud) * sp; photoCam.pos[2] += (cy * cp * fw - sy * st) * sp;
+  photoCam.pos[1] = Math.max(photoCam.pos[1], terrainAt(photoCam.pos[0], photoCam.pos[2]) + 2);
+  photoCam.yaw += ((down('ArrowRight') ? 1 : 0) - (down('ArrowLeft') ? 1 : 0)) * rot;
+  photoCam.pitch = clamp(photoCam.pitch + ((down('ArrowUp') ? 1 : 0) - (down('ArrowDown') ? 1 : 0)) * rot, -1.4, 1.4);
+  if (down('BracketRight')) simHour = (simHour + dt * 1.5) % 24;
+  if (down('BracketLeft')) simHour = (simHour - dt * 1.5 + 24) % 24;
+}
+// the five stacked layers drawn into one picture (without the on-screen controls)
+function compositeLayers(o, w, h) {
+  o.drawImage(canvas, 0, 0, w, h);
+  if (terrainGL) { o.drawImage(tglCanvas, 0, 0, w, h); o.drawImage(objCanvas, 0, 0, w, h); }
+  o.drawImage(glCanvas, 0, 0, w, h);
+}
+// an 8 second video clip of the whole screen, saved as a .webm file
+let clip = null;
+function startClip() {
+  if (clip) return;
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) { flashNote('VIDEO RECORDING IS NOT SUPPORTED HERE'); return; }
+  try {
+    const cv = document.createElement('canvas');
+    cv.width = Math.min(canvas.width, 1280); cv.height = Math.round(cv.width * canvas.height / canvas.width);
+    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+    const rec = new MediaRecorder(cv.captureStream(30), mime ? { mimeType: mime } : {}), chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+      a.download = `plane-the-plane-${Date.now()}.webm`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      flashNote('CLIP SAVED');
+    };
+    rec.start();
+    clip = { cv, rec, t0: performance.now() };
+    flashNote('RECORDING AN 8 SECOND CLIP...');
+  } catch (e) { clip = null; flashNote('COULD NOT START RECORDING'); }
+}
+function clipFrame() {
+  if (!clip) return;
+  const o = clip.cv.getContext('2d');
+  compositeLayers(o, clip.cv.width, clip.cv.height);
+  o.drawImage(fxCanvas, 0, 0, clip.cv.width, clip.cv.height);
+  if (performance.now() - clip.t0 > 8000) { const c = clip; clip = null; c.rec.stop(); }
+}
+function drawPhotoHud() {
+  ctx = fxCtx;
+  fxCtx.clearRect(0, 0, W, H);
+  fxCtx.fillStyle = 'rgba(8,24,44,0.6)'; fxCtx.fillRect(W / 2 - 330, H - 52, 660, 30);
+  fxCtx.fillStyle = '#9fe6ff'; fxCtx.font = '12px ui-monospace, Menlo, Consolas, monospace'; fxCtx.textAlign = 'center';
+  fxCtx.fillText('PHOTO MODE  WASD move  Q/E down/up  arrows look  Shift fast  [ ] time ' + fmtHour(simHour) + '  O photo  F9 clip  H exit', W / 2, H - 33);
+  fxCtx.textAlign = 'start';
+}
 function takePhoto() {
   const out = document.createElement('canvas');
   out.width = canvas.width; out.height = canvas.height;
   const o = out.getContext('2d');
-  o.drawImage(canvas, 0, 0);
-  if (terrainGL) { o.drawImage(tglCanvas, 0, 0, out.width, out.height); o.drawImage(objCanvas, 0, 0, out.width, out.height); }
-  o.drawImage(glCanvas, 0, 0, out.width, out.height);
+  compositeLayers(o, out.width, out.height);
   const stamp = new Date().toLocaleString();
   o.font = `${Math.round(out.height / 40)}px ui-monospace, Menlo, monospace`;
   o.fillStyle = 'rgba(0,0,0,0.45)';
@@ -6887,6 +6961,7 @@ function frame(now) {
     if (slowSecs > 5) { gfxLow = true; resize(); flashNote('GRAPHICS LOWERED FOR SPEED (GFX button to change)'); }
   }
   lastFrameAt = now;
+  if (photoMode) { photoStep(dt); render(); drawPhotoHud(); if (snapRequested) { snapRequested = false; takePhoto(); } clipFrame(); requestAnimationFrame(frame); return; }
   for (let i = 0; i < 4; i++) update(dt / 4);   // sub-steps keep the physics stable
   render();
   ctx = fxCtx;
@@ -6923,6 +6998,7 @@ function frame(now) {
   updateTower();
   checkLesson();
   if (snapRequested) { snapRequested = false; takePhoto(); }
+  clipFrame();
   requestAnimationFrame(frame);
 }
 terrainGL = initTerrainGL();
