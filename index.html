@@ -3009,7 +3009,8 @@ for (let i = 0; i < Math.round(160 * WS * WS); i++) {
 // ---------- plane state
 let plane;
 let view = 0; // 0 = chase, 1 = cockpit, 2 = side
-const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE'];
+const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE', 'LOOK LEFT', 'LOOK RIGHT'];
+const inCockpit = () => view === 1 || view === 3 || view === 4;
 let lightsOn = true, soundOn = localStorage.getItem('plane-the-plane-sound') !== 'off';
 function setSound(on) {
   soundOn = on;
@@ -4845,6 +4846,12 @@ function render() {
     eye = add(p.pos, add(mul(ax.f, 1.2), mul(ax.up, 1.1)));
     target = add(eye, ax.f);
     camUp = ax.up;
+  } else if (view === 3 || view === 4) {
+    // looking out of the side window: the cockpit view turned 80 degrees
+    eye = add(p.pos, add(mul(ax.f, 1.2), mul(ax.up, 1.1)));
+    const k = view === 3 ? -1 : 1, ca = Math.cos(1.4), sa = Math.sin(1.4) * k;
+    target = add(eye, add(mul(ax.f, ca), mul(ax.right, sa)));
+    camUp = ax.up;
   } else {
     // side: from the right wing, level, looking at the plane
     eye = add(p.pos, add(mul(ax.right, back), mul(ax.up, back * 0.2)));
@@ -5145,7 +5152,7 @@ function render() {
   // the aircraft itself: every face of its mesh, painted with the rest of the scene
   const toWorld = v => add(p.pos, add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2])));
   // hidden when a hill is in the way
-  if (view !== 1 && !blockedFrom(eye, p.pos)) {
+  if (!inCockpit() && !blockedFrom(eye, p.pos)) {
     // propeller blades turn about the hub, faster at higher throttle
     const ang = performance.now() / 1000 * (4 + 40 * p.throttle), ca = Math.cos(ang), sa = Math.sin(ang), hub = p.model.hub;
     const spun = pts => pts.map(([x, y, z]) => { const dy = y - hub[1]; return [x * ca - dy * sa, hub[1] + x * sa + dy * ca, z]; });
@@ -5278,8 +5285,23 @@ function drawCockpitPanel() {
   if (view !== 1 || !pilot) return;
   const p = plane, r = Math.min(H * 0.11, W / 14), gap = r * 2.35, cy = H - r - 18, cx0 = W / 2 - gap * 2;
   const pw = gap * 5.4, px = W / 2 - pw / 2, py = cy - r - 14, ph = r * 2 + 40;
+  // the window frame: two slanted pillars and a glare shield, so the view feels like looking out of a cockpit
+  ctx.fillStyle = 'rgba(12,15,20,0.96)';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(W * 0.09, 0); ctx.lineTo(W * 0.035, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(W, 0); ctx.lineTo(W * 0.91, 0); ctx.lineTo(W * 0.965, H); ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+  ctx.fillRect(0, 0, W, H * 0.035);
   ctx.fillStyle = 'rgba(16,20,26,0.94)'; ctx.fillRect(px, py, pw, ph);
   ctx.strokeStyle = '#3a4350'; ctx.lineWidth = 2; ctx.strokeRect(px, py, pw, ph);
+  // engine strip above the dials: gear lights, flaps, throttle and fuel bars
+  { const sy = py - 24, sx = px + 10; ctx.fillStyle = 'rgba(16,20,26,0.92)'; ctx.fillRect(px, sy - 4, pw, 24);
+    ctx.font = '11px ui-monospace, Menlo, Consolas, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = p.gear ? PAL.good : PAL.warn; ctx.beginPath(); ctx.arc(sx + 5, sy + 8, 5, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#c9d4df'; ctx.fillText('GEAR ' + (p.gear ? 'DOWN' : 'UP'), sx + 16, sy + 8);
+    ctx.fillText('FLAPS ' + p.flaps, sx + 110, sy + 8);
+    const bar = (x, label, v, col) => { ctx.fillStyle = '#c9d4df'; ctx.fillText(label, x, sy + 8); ctx.fillStyle = '#26303c'; ctx.fillRect(x + 34, sy + 3, 70, 10); ctx.fillStyle = col; ctx.fillRect(x + 34, sy + 3, 70 * clamp(v, 0, 1), 10); };
+    bar(sx + 180, 'THR', p.throttle, '#ffd23f'); bar(sx + 300, 'FUEL', p.fuel, p.fuel < 0.2 ? PAL.bad : PAL.good);
+    if (p.engineOut) { ctx.fillStyle = PAL.bad; ctx.fillText(p.fire != null ? 'FIRE' : 'ENGINE OUT', sx + 430, sy + 8); }
+    ctx.textBaseline = 'alphabetic'; }
 
   // airspeed, in knots; the scale ends a little above the plane's top speed
   const kt = p.speed * 1.944, maxKt = Math.max(100, Math.ceil(Math.sqrt(p.model.thrust / p.model.drag) * 1.944 * 1.1 / 50) * 50);
