@@ -16,6 +16,7 @@
   #hangar button{background:#3ddc97;border:0;border-radius:6px;padding:6px 14px;font:inherit;color:#06201a;cursor:pointer}
   #hangar button:disabled{background:#2a3d5c;color:#7d8ea0;cursor:default}
   #hangar .hint{color:#8fb3c9;font-size:12px;margin:12px 0 0}
+  #spots{max-height:62vh;overflow:auto}
   #teleport{position:fixed;inset:0;z-index:20;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
   #teleport .card{background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;min-width:320px}
   #teleport h2{margin:0 0 6px;font-size:22px}
@@ -885,31 +886,51 @@ const AIRPORT_DATA = [
   { code: 'SIN', name: 'Singapore Changi', hdg: 20, len: 4000 },
   { code: 'DEN', name: 'Denver', hdg: 160, len: 3658 },
   { code: 'ORD', name: "Chicago O'Hare", hdg: 100, len: 2896 },
-  { code: 'HKG', name: 'Hong Kong', hdg: 70, len: 3800 }
+  { code: 'HKG', name: 'Hong Kong', hdg: 70, len: 3800 },
+  { code: 'CDG', name: 'Paris Charles de Gaulle', hdg: 80, len: 4200 },
+  { code: 'IST', name: 'Istanbul', hdg: 170, len: 3750 },
+  { code: 'DEL', name: 'Delhi', hdg: 110, len: 4430 },
+  { code: 'PEK', name: 'Beijing Capital', hdg: 180, len: 3800 },
+  { code: 'ICN', name: 'Seoul Incheon', hdg: 150, len: 3750 },
+  { code: 'GRU', name: 'Sao Paulo', hdg: 90, len: 3700 },
+  { code: 'JNB', name: 'Johannesburg', hdg: 30, len: 4400 },
+  { code: 'CAI', name: 'Cairo', hdg: 50, len: 4000 },
+  { code: 'MEX', name: 'Mexico City', hdg: 50, len: 3900 },
+  { code: 'YYZ', name: 'Toronto Pearson', hdg: 50, len: 3390 },
+  { code: 'MIA', name: 'Miami', hdg: 80, len: 3200 },
+  { code: 'AKL', name: 'Auckland', hdg: 50, len: 3635 }
 ];
 // real latitude and longitude of each airport, in degrees
 const GEO_AIRPORTS = {
   LAX: [33.94, -118.41], SFO: [37.62, -122.38], JFK: [40.64, -73.78], LHR: [51.47, -0.45],
   FRA: [50.03, 8.57], DXB: [25.25, 55.36], HND: [35.55, 139.78], SYD: [-33.95, 151.18],
-  SIN: [1.36, 103.99], DEN: [39.86, -104.67], ORD: [41.98, -87.9], HKG: [22.31, 113.92]
+  SIN: [1.36, 103.99], DEN: [39.86, -104.67], ORD: [41.98, -87.9], HKG: [22.31, 113.92],
+  CDG: [49.01, 2.55], IST: [41.26, 28.74], DEL: [28.56, 77.1], PEK: [40.08, 116.58], ICN: [37.46, 126.44], GRU: [-23.43, -46.47],
+  JNB: [-26.14, 28.25], CAI: [30.12, 31.41], MEX: [19.44, -99.07], YYZ: [43.68, -79.63], MIA: [25.79, -80.29], AKL: [-37.01, 174.79]
 };
-// Runways are kept to 2600 m so twelve of them fit in the 12 km world. Each airport is placed where its runway
+// Runways are kept to 2600 m (2000 m for the airports added later) so they all fit in the 12 km world. Each airport is placed where its runway
 // stays clear of the home runway and of the other airports, otherwise their flat pads would bury each other.
 const AIRPORTS = [];
 (() => {
   const spread = (x, z, ux, uz, hl) => { const pts = []; for (let t = -hl; t <= hl; t += 150) pts.push([x + ux * t, z + uz * t]); return pts; };
   const homeGap = ([px, pz]) => Math.hypot(Math.max(Math.abs(px) - RUNWAY.x, 0), Math.max(RUNWAY.z0 - pz, pz - RUNWAY.z1, 0));
   AIRPORT_DATA.forEach((a, i) => {
-    const hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad), len = Math.min(a.len, 2600), hl = len / 2;
-    let spot = null;
-    for (let t = 0; t < 2000 && !spot; t++) {
-      const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200;
-      const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
-      const pts = spread(x, z, ux, uz, hl);
-      if (pts.some(([px, pz]) => Math.abs(px) > 5500 || Math.abs(pz) > 5500)) continue;
-      if (pts.some(q => homeGap(q) < 500)) continue;
-      if (AIRPORTS.some(o => spread(o.x, o.z, Math.sin(o.hdgRad), Math.cos(o.hdgRad), o.len / 2).some(q => pts.some(r => Math.hypot(q[0] - r[0], q[1] - r[1]) < 450)))) continue;
-      spot = { x, z };
+    const hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
+    let len = Math.min(a.len, i < 12 ? 2600 : 2000), spot = null;
+    // try the usual gap first; if the world is too full, allow a smaller gap, then a shorter runway
+    for (const [gap, shrink] of [[450, 1], [300, 1], [180, 1], [180, 0.75], [120, 0.6]]) {
+      len = Math.min(a.len, i < 12 ? 2600 : 2000) * shrink;
+      const hl = len / 2;
+      for (let t = 0; t < 1500 && !spot; t++) {
+        const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200;
+        const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
+        const pts = spread(x, z, ux, uz, hl);
+        if (pts.some(([px, pz]) => Math.abs(px) > 5500 || Math.abs(pz) > 5500)) continue;
+        if (pts.some(q => homeGap(q) < 500)) continue;
+        if (AIRPORTS.some(o => spread(o.x, o.z, Math.sin(o.hdgRad), Math.cos(o.hdgRad), o.len / 2).some(q => pts.some(r => Math.hypot(q[0] - r[0], q[1] - r[1]) < gap)))) continue;
+        spot = { x, z };
+      }
+      if (spot) break;
     }
     if (!spot) spot = { x: Math.cos(i) * 4800, z: Math.sin(i) * 4800 };
     const geo = GEO_AIRPORTS[a.code];
@@ -919,12 +940,15 @@ const AIRPORTS = [];
 function refreshPads() {
   pads = [{ x: 0, z: (RUNWAY.z0 + RUNWAY.z1) / 2, hdg: 0, half: [(RUNWAY.z1 - RUNWAY.z0) / 2, RUNWAY.x], elev: 0 }];
   for (const a of AIRPORTS) pads.push({ x: a.x, z: a.z, hdg: a.hdgRad, half: [a.len / 2, 20], elev: naturalAt(a.x, a.z) });
+  for (const pad of pads) { pad.sn = Math.sin(pad.hdg); pad.cs = Math.cos(pad.hdg); pad.reach2 = (pad.half[0] + PAD_BLEND) ** 2 + (pad.half[1] + PAD_BLEND) ** 2; }
 }
 // Height of the ground at x, z, with the pads applied.
 function terrainAt(x, z) {
   let h = Math.max(naturalAt(x, z), WATER);
   for (const pad of pads) {
-    const dx = x - pad.x, dz = z - pad.z, sn = Math.sin(pad.hdg), cs = Math.cos(pad.hdg);
+    const dx = x - pad.x, dz = z - pad.z;
+    if (dx * dx + dz * dz > pad.reach2) continue;          // too far to matter
+    const sn = pad.sn, cs = pad.cs;
     const a = dx * sn + dz * cs, b = dx * cs - dz * sn;   // along and across the pad
     const d = Math.hypot(Math.max(Math.abs(a) - pad.half[0], 0), Math.max(Math.abs(b) - pad.half[1], 0));
     const t = clamp(1 - d / PAD_BLEND, 0, 1);
@@ -1388,7 +1412,7 @@ const BADGES = [
   { id: 'barrel', text: 'First barrel roll', ok: () => (save.barrels || 0) >= 1 },
   { id: 'rings', text: 'Fly through all 12 rings', ok: () => (save.ringsFlown || 0) >= 12 },
   { id: 'missions', text: 'Finish every mission', ok: () => MISSIONS.every(m => (save.missions || []).includes(m.id)) },
-  { id: 'tour', text: 'Land at all 12 airports', ok: () => (save.visited || []).length >= AIRPORTS.length },
+  { id: 'tour', text: 'Land at all ' + AIRPORTS.length + ' airports', ok: () => (save.visited || []).length >= AIRPORTS.length },
   { id: 'overseas', text: 'Finish a long-haul flight', ok: () => (save.longhauls || 0) >= 1 },
   { id: 'night', text: 'Land at night', ok: () => !!save.nightLanding },
   { id: 'school', text: 'Pass all the flight lessons', ok: () => LESSONS.every(l => (save.lessons || []).includes(l.id)) },
@@ -2899,7 +2923,9 @@ function drawWorld() {
   for (const a of AIRPORTS) {
     const [x, y] = worldProject(a.lon, a.lat, w, h);
     g.fillStyle = '#ffd34d'; g.beginPath(); g.arc(x, y, 4, 0, 6.3); g.fill();
-    g.fillStyle = '#e8fff5'; g.fillText(a.code, x + 6, y - 4);
+    g.fillStyle = '#e8fff5';
+    if (x > w - 44) { g.textAlign = 'right'; g.fillText(a.code, x - 6, y - 4); g.textAlign = 'start'; }   // keep labels on the map near the right edge
+    else g.fillText(a.code, x + 6, y - 4);
   }
   // click an airport to fly there
   cv.onclick = e => {
