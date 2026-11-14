@@ -2961,16 +2961,21 @@ function checkMissions() {
 // Contracts: fly to a strip on the map and land there to get paid and earn XP.
 // A job flies from one real airport to another; pay grows with the distance between them.
 function makeOffer() {
-  const from = Math.floor(Math.random() * AIRPORTS.length);
-  let to = Math.floor(Math.random() * (AIRPORTS.length - 1));
-  if (to >= from) to++;
+  // charters start at one of the airports nearest to you and go to one a few kilometres away; big planes carry more and earn more
+  const p = plane ? plane.pos : [0, 0, 0];
+  const near = AIRPORTS.map((q, i) => [i, Math.hypot(q.x - p[0], q.z - p[2])]).sort((u, v) => u[1] - v[1]).slice(0, 6);
+  const from = near[Math.floor(Math.random() * near.length)][0];
+  const far = AIRPORTS.map((q, i) => [i, Math.hypot(q.x - AIRPORTS[from].x, q.z - AIRPORTS[from].z)]).filter(u => u[0] !== from && u[1] > 2500 && u[1] < 9000);
+  let to = far.length ? far[Math.floor(Math.random() * far.length)][0] : (from + 1) % AIRPORTS.length;
   const A = AIRPORTS[from], B = AIRPORTS[to];
   const kind = Math.random() < 0.5 ? 'cargo' : 'passenger';
   const d = Math.hypot(B.x - A.x, B.z - A.z), km = d / 1000;
-  const mult = kind === 'passenger' ? 1.3 : 1;
+  const cap = Math.max(2, (CAPACITY[plane ? plane.model.name : 'Trainer'] || 4));
+  const load = kind === 'passenger' ? Math.max(1, Math.round(cap * (0.6 + 0.35 * Math.random()))) : Math.max(1, Math.round(cap * 0.4 * (0.6 + 0.4 * Math.random())));
+  const mult = (kind === 'passenger' ? 1.3 : 1) * (1 + Math.min(3, cap / 60));
   return {
-    name: `${A.code} to ${B.code}`,
-    kind, stage: 0,
+    name: `${A.code} to ${B.code}: ${load} ${kind === 'passenger' ? (load === 1 ? 'passenger' : 'passengers') : (load === 1 ? 'tonne' : 'tonnes') + ' of cargo'}`,
+    kind, stage: 0, load,
     x: A.x, z: A.z, dist: d, hdg: A.hdgRad,
     dx: B.x, dz: B.z, dhdg: B.hdgRad,
     pay: Math.round((300 + km * 150) * mult), xp: Math.round(100 + km * 60)
