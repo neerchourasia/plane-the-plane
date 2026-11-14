@@ -2679,6 +2679,9 @@ let airportBuildingCount = 0;
       }
       for (const q of placed) buildings.push(q);
       a.complex = { side, terminal: tw };
+      a.parts = placed.filter(q => !q.slab);
+      const apron = placed.find(q => q.name === 'apron');
+      if (apron) a.apron = { y: apron.y + 0.3, half: (tw + 60) / 2, off: 82 };
       airportBuildingCount += placed.length;
       break;
     }
@@ -3777,6 +3780,15 @@ function update(dt) {
     p.onGround = false;
   }
 
+  // parked planes
+  for (const [i, a] of AIRPORTS.entries()) {
+    if (!a.apron || Math.abs(p.pos[0] - a.x) > 450 || Math.abs(p.pos[2] - a.z) > 450) continue;
+    for (const st of standsOf(a, i)) {
+      const dx = p.pos[0] - st.x, dz = p.pos[2] - st.z, sn = Math.sin(st.yaw), cs = Math.cos(st.yaw);
+      const along = dx * sn + dz * cs, across = dx * cs - dz * sn;
+      if (Math.abs(along) < st.m.ext.len + 1 && Math.abs(across) < st.m.ext.span + 1 && p.pos[1] < st.y + Math.max(4, st.m.ext.len * 0.5)) return crash('Hit a parked plane');
+    }
+  }
   // buildings
   for (const b of buildings) {
     if (b.slab) continue;
@@ -3789,6 +3801,46 @@ function update(dt) {
       return crash('Hit a building');
     }
   }
+}
+
+// ---------- parked planes: each airport with an apron has a few planes standing on it, nose toward the terminal
+const PARK_POOLS = { big: ['Airliner', '777X', '737', '787', '747', 'A330', 'A350', 'A380', '757', '767', 'Embraer E175', '737', 'A350'], mid: ['737', 'Embraer E175', 'Airliner', '757', 'Sport Jet', 'Embraer E175'], small: ['Cessna 172', 'Trainer', 'Sport Jet', 'Cessna 172'] };
+const PARK_COLS = [[200, 30, 40], [20, 70, 160], [240, 170, 20], [20, 130, 80], [110, 40, 140], [30, 30, 36], [230, 110, 20]];
+function standsOf(a, idx) {
+  if (a.stands) return a.stands;
+  a.stands = [];
+  if (!a.apron) return a.stands;
+  const pool = a.len >= 1800 ? PARK_POOLS.big : a.len >= 1000 ? PARK_POOLS.mid : PARK_POOLS.small;
+  const want = a.len >= 1800 ? 3 : 2;
+  const h = a.hdgRad, side = a.complex.side, ux = Math.sin(h), uz = Math.cos(h), sx = Math.cos(h), sz = -Math.sin(h);
+  const picks = [];
+  for (let k = 0; k < want; k++) {
+    const m = MODELS.find(q => q.name === pool[Math.floor(hash2(idx * 7 + k, 4321) * pool.length)]);
+    if (m) picks.push(m);
+  }
+  let total = 0;
+  const shown = [];
+  for (const m of picks) { const w = m.ext.span * 2 * 1.12; if (total + w > a.apron.half * 2) break; total += w; shown.push([m, w]); }
+  let along = -total / 2;
+  shown.forEach(([m, w], k) => {
+    const at = along + w / 2; along += w;
+    const col = PARK_COLS[Math.floor(hash2(idx * 13 + k, 777) * PARK_COLS.length)];
+    const cx = a.x + sx * side * a.apron.off + ux * at, cz = a.z + sz * side * a.apron.off + uz * at;
+    const sp = m.spec;
+    a.stands.push({ m, x: cx, z: cz, y: a.apron.y + m.gearLen, yaw: h + side * Math.PI / 2, paint: { body: sp.body, stripe: col, wing: sp.wing.col, fin: col } });
+  });
+  return a.stands;
+}
+// true when one of the airport's buildings stands between the eye and the point
+function blockedByAirportBuildings(a, eye, pt) {
+  for (const b of (a.parts || [])) {
+    const sn = Math.sin(b.rot), cs = Math.cos(b.rot);
+    for (let i = 1; i < 14; i++) {
+      const t = i / 14, x = eye[0] + (pt[0] - eye[0]) * t - b.x, y = eye[1] + (pt[1] - eye[1]) * t, z = eye[2] + (pt[2] - eye[2]) * t - b.z;
+      if (Math.abs(x * sn + z * cs) < b.lw / 2 && Math.abs(x * cs - z * sn) < b.ld / 2 && y > b.y + b.base && y < b.top) return true;
+    }
+  }
+  return false;
 }
 
 // ---------- rendering helpers
@@ -4170,6 +4222,24 @@ function render() {
         ctx.beginPath(); ctx.arc(sx, sy - r * 0.1, r * 0.88, 0, Math.PI * 2); ctx.fill();
       }
     });
+  }
+  // parked planes: the nearest few airports' stands, with their meshes sent to the WebGL layer like the player's plane
+  if (useGL) {
+    let drawn = 0;
+    for (const [i, a] of AIRPORTS.entries()) {
+      if (!a.apron || Math.abs(a.x - eye[0]) > 1800 || Math.abs(a.z - eye[2]) > 1800) continue;
+      for (const st of standsOf(a, i)) {
+        const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
+        if (d > 1500 || d < 3 || drawn >= 9) continue;
+        if (blockedFrom(eye, add(pos, [0, 4, 0])) || blockedByAirportBuildings(a, eye, add(pos, [0, 3, 0]))) continue;
+        const sy = Math.sin(st.yaw), cy = Math.cos(st.yaw);
+        const tw = v => [pos[0] + cy * v[0] + sy * v[2], pos[1] + v[1], pos[2] - sy * v[0] + cy * v[2]];
+        const td = v => [cy * v[0] + sy * v[2], v[1], -sy * v[0] + cy * v[2]];
+        for (const face of st.m.mesh) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: paintColor(st.paint, face) });
+        for (const face of st.m.gear) planeTris.push({ pts: face.pts.map(tw), vn: face.vn.map(td), col: face.col });
+        drawn++;
+      }
+    }
   }
   // the aircraft itself: every face of its mesh, painted with the rest of the scene
   const toWorld = v => add(p.pos, add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2])));
