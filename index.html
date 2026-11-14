@@ -4062,7 +4062,7 @@ function trafficStep(a, i, dt, slot) {
     if (st.away) { T.k++; return; }
     st.away = true;
     T.dir = standAlong >= 0 ? 1 : -1;
-    T.plane = { m, paint: st.paint, x: st.x, y: gy, z: st.z, yaw: st.yaw, pitch: 0, v: 0, up: false, call: callOf(st, i * 31 + T.n) };
+    T.plane = { m, paint: st.paint, x: st.x, y: gy, z: st.z, yaw: st.yaw, pitch: 0, v: 0, up: false, gk: 0, call: callOf(st, i * 31 + T.n) };
     trafficCall(a, i, `${T.plane.call}, PUSHBACK APPROVED`);
     T.way = { p: at(TAXI, standAlong), rev: true, v: 2.5 };
     T.phase = 'push';
@@ -4083,7 +4083,7 @@ function trafficStep(a, i, dt, slot) {
       P.v = Math.min(vr * 1.7, P.v + 3 * dt);
       P.alt = (P.alt || 0) + P.v * 0.2 * dt; P.pitch = Math.min(0.2, P.pitch + 0.2 * dt);
       P.y = gy + P.alt;
-      if (P.alt > 14) P.up = true;
+      P.gk = clamp((P.alt - 4) / 12, 0, 1);
     }
     if (P.alt > 25 && a.rw === slot) a.rw = null;
     if (P.alt > 450 || Math.hypot(P.x - a.x, P.z - a.z) > 3300) { T.plane = null; T.phase = 'away'; T.t = 25 + hash2(i + T.n, 57) * 45; }
@@ -4094,7 +4094,7 @@ function trafficStep(a, i, dt, slot) {
     a.rw = slot;
     T.l = hash2(i, 60 + T.n) < 0.5 ? 1 : -1;
     const yawL = T.l > 0 ? h : h + Math.PI, start = at(0, -T.l * (half + 2600));
-    T.plane = { m, paint: st.paint, x: start[0], y: gy + 143, z: start[1], yaw: yawL, pitch: -0.05, v: m.stall * 1.35, up: true, alt: 143 };
+    T.plane = { m, paint: st.paint, x: start[0], y: gy + 143, z: start[1], yaw: yawL, pitch: -0.05, v: m.stall * 1.35, up: true, gk: 1, alt: 143 };
     T.plane.call = callOf(st, i * 31 + T.n + 7);
     trafficCall(a, i, `${T.plane.call} ON FINAL RUNWAY ${rwyNum(yawL * RAD2DEG)}, CLEARED TO LAND`);
     T.phase = 'approach';
@@ -4102,7 +4102,7 @@ function trafficStep(a, i, dt, slot) {
     const along = alongOf(P), td = -T.l * half + T.l * 140, togo = (td - along) * T.l;
     P.x += Math.sin(P.yaw) * P.v * dt; P.z += Math.cos(P.yaw) * P.v * dt;
     P.alt = Math.max(0, togo * 0.0524); P.y = gy + P.alt;
-    if (P.alt < 25) P.up = false;
+    P.gk = clamp((P.alt - 35) / 25, 0, 1);
     P.pitch = P.alt < 6 ? 0.06 : -0.05;
     if (togo <= 0) { P.alt = 0; P.y = gy; P.pitch = 0; T.phase = 'rollout'; }
   } else if (T.phase === 'rollout') {
@@ -4159,11 +4159,20 @@ function skyFlight(k, t) {
   const x = r.a.x + (r.b.x - r.a.x) * f, z = r.a.z + (r.b.z - r.a.z) * f;
   const gy = terrainAt(x, z) + r.m.gearLen + 8;
   const slope = (r.cruise * (f < 0.5 ? ease((f + 0.01) / 0.22) - ease(f / 0.22) : ease((1 - f - 0.01) / 0.22) - ease((1 - f) / 0.22)) / (0.01 * r.dist)) * (f < 0.5 ? 1 : -1);
-  return { m: r.m, paint: r.paint, x, y: Math.max(gy, terrainAt(x, z) + 60 + alt), z, yaw: r.yaw, pitch: clamp(Math.atan(slope), -0.12, 0.14), up: alt > 20 };
+  return { m: r.m, paint: r.paint, x, y: Math.max(gy, terrainAt(x, z) + 60 + alt), z, yaw: r.yaw, pitch: clamp(Math.atan(slope), -0.12, 0.14), gk: clamp((alt - 8) / 40, 0, 1), spin: 38 };
 }
 function pushModelTris(st) {
   const sy = Math.sin(st.yaw), cy = Math.cos(st.yaw), sp = Math.sin(st.pitch), cp = Math.cos(st.pitch);
-  planeInstances.push({ m: st.m, paint: st.paint, pos: [st.x, st.y, st.z], f: [sy * cp, sp, cy * cp], rt: [cy, 0, -sy], up: [-sp * sy, cp, -sp * cy], gearUp: !!st.up });
+  const f = [sy * cp, sp, cy * cp], rt = [cy, 0, -sy], up = [-sp * sy, cp, -sp * cy], pos = [st.x, st.y, st.z];
+  planeInstances.push({ m: st.m, paint: st.paint, pos, rt, up, f, gearK: st.gk != null ? st.gk : (st.up ? 1 : 0) });
+  // propeller and rotor blades are not in the cached model: they turn, so they are sent each frame (a few triangles)
+  const blades = st.m.mesh.filter(q => q.spin || q.spinH);
+  if (!blades.length) return;
+  const ang = st.spin ? performance.now() / 1000 * (st.spin) : 0, ca = Math.cos(ang), sa = Math.sin(ang), hub = st.m.hub, rz = st.m.rotor ? st.m.rotor.z : 0;
+  const spun = q => q.spin ? q.pts.map(([x, y, z]) => { const dy = y - hub[1]; return [x * ca - dy * sa, hub[1] + x * sa + dy * ca, z]; }) : q.pts.map(([x, y, z]) => { const dz = z - rz; return [x * ca - dz * sa, y, rz + x * sa + dz * ca]; });
+  const tw = v => [pos[0] + rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], pos[1] + rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], pos[2] + rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
+  const td = v => [rt[0] * v[0] + up[0] * v[1] + f[0] * v[2], rt[1] * v[0] + up[1] * v[1] + f[1] * v[2], rt[2] * v[0] + up[2] * v[1] + f[2] * v[2]];
+  for (const q of blades) planeTris.push({ pts: spun(q).map(tw), vn: q.vn.map(td), col: paintColor(st.paint, q) });
 }
 // ---------- airport props: a jet bridge at every stand, a fuel truck beside each parked plane, and service vans driving along the apron
 function pushBox(cx, y0, cz, yaw, lx, ly, lz, col) {
@@ -4624,6 +4633,7 @@ function render() {
       for (const st of list) {
         const pos = [st.x, st.y, st.z], d = len(sub(pos, eye));
         if (d > 2200 || d < 3 || drawn >= 10) continue;
+        if (st.v > 0.5 || st.phaseMoving) st.spin = 30 + st.v;
         if (blockedFrom(eye, add(pos, [0, 4, 0])) || blockedByAirportBuildings(a, eye, add(pos, [0, 3, 0]))) continue;
         pushModelTris(st);
         drawn++;
@@ -4634,7 +4644,7 @@ function render() {
       const m = MODELS.find(q => q.name === o.plane);
       if (!m) continue;
       const dt = Math.min(15, (performance.now() - o.t0) / 1000), fx = Math.sin(o.yaw), fz = Math.cos(o.yaw);
-      const q = { m, paint: null, x: o.x + fx * o.v * dt, y: o.y, z: o.z + fz * o.v * dt, yaw: o.yaw, pitch: 0, up: o.y - terrainAt(o.x, o.z) > 25 };
+      const q = { m, paint: null, x: o.x + fx * o.v * dt, y: o.y, z: o.z + fz * o.v * dt, yaw: o.yaw, pitch: 0, up: o.y - terrainAt(o.x, o.z) > 25, spin: o.v > 8 ? 40 : 0 };
       const d = Math.hypot(q.x - eye[0], q.z - eye[2]);
       if (d > 3200 || blockedFrom(eye, [q.x, q.y, q.z])) continue;
       pushModelTris(q);
@@ -5579,7 +5589,7 @@ function cachedModelBuffer(g, m, paint, gear) {
   const key = (gear ? 'gear|' : '') + m.name + '|' + (paint && !gear ? [paint.body, paint.stripe, paint.wing, paint.fin].join(';') : '');
   let c = modelCache.get(key);
   if (!c) {
-    const faces = (gear ? m.gear : m.mesh).map(f => ({ pts: f.pts, vn: f.vn, col: gear ? f.col : paintColor(paint, f) }));
+    const faces = (gear ? m.gear : m.mesh.filter(f => !f.spin && !f.spinH)).map(f => ({ pts: f.pts, vn: f.vn, col: gear ? f.col : paintColor(paint, f) }));
     const { data, count } = packTris(faces);
     const buf = g.createBuffer();
     g.bindBuffer(g.ARRAY_BUFFER, buf); g.bufferData(g.ARRAY_BUFFER, data, g.STATIC_DRAW);
@@ -5628,7 +5638,9 @@ function drawPassesGL(g, s, tris, cam, instances) {
     g.uniform1f(s.uni.uHasTex, 0);
     for (const it of instances) {
       place(it.pos, it.rt, it.up, it.f);
-      for (const gear of (it.gearUp ? [false] : [false, true])) {
+      for (const gear of (it.gearK >= 0.99 ? [false] : [false, true])) {
+        if (gear && it.gearK > 0.01) { const k = 1 - it.gearK; place(it.pos, it.rt, [it.up[0] * k, it.up[1] * k, it.up[2] * k], it.f); }
+        else place(it.pos, it.rt, it.up, it.f);
         const c = cachedModelBuffer(g, it.m, it.paint, gear);
         g.bindBuffer(g.ARRAY_BUFFER, c.buf);
         g.vertexAttribPointer(s.loc.aPos, 3, g.FLOAT, false, stride, 0); g.vertexAttribPointer(s.loc.aNor, 3, g.FLOAT, false, stride, 12);
