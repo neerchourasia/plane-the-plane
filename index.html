@@ -1108,7 +1108,53 @@ const AIRPORT_DATA = [
   { code: 'DAR', name: 'Dar es Salaam', hdg: 230, len: 3000 },
   { code: 'HRE', name: 'Harare', hdg: 230, len: 4725 },
   { code: 'SJO', name: 'San Jose Costa Rica', hdg: 70, len: 3012 },
-  { code: 'CCS', name: 'Caracas', hdg: 90, len: 3000 }
+  { code: 'CCS', name: 'Caracas', hdg: 90, len: 3000 },
+  { code: 'DUS', name: 'Dusseldorf', hdg: 230, len: 3000 },
+  { code: 'CGN', name: 'Cologne Bonn', hdg: 140, len: 3815 },
+  { code: 'STR', name: 'Stuttgart', hdg: 70, len: 3345 },
+  { code: 'LYS', name: 'Lyon', hdg: 350, len: 4000 },
+  { code: 'MRS', name: 'Marseille', hdg: 130, len: 3500 },
+  { code: 'TLS', name: 'Toulouse', hdg: 330, len: 3500 },
+  { code: 'OPO', name: 'Porto', hdg: 350, len: 3480 },
+  { code: 'VLC', name: 'Valencia', hdg: 120, len: 3200 },
+  { code: 'NAP', name: 'Naples', hdg: 60, len: 2628 },
+  { code: 'EDI', name: 'Edinburgh', hdg: 240, len: 2556 },
+  { code: 'GLA', name: 'Glasgow', hdg: 50, len: 2658 },
+  { code: 'BHX', name: 'Birmingham', hdg: 150, len: 3000 },
+  { code: 'GOT', name: 'Gothenburg', hdg: 210, len: 3300 },
+  { code: 'RIX', name: 'Riga', hdg: 180, len: 3200 },
+  { code: 'TLL', name: 'Tallinn', hdg: 90, len: 3070 },
+  { code: 'KRK', name: 'Krakow', hdg: 90, len: 2550 },
+  { code: 'IKA', name: 'Tehran Imam Khomeini', hdg: 110, len: 4200 },
+  { code: 'BAH', name: 'Bahrain', hdg: 120, len: 3900 },
+  { code: 'SHJ', name: 'Sharjah', hdg: 120, len: 4060 },
+  { code: 'SAW', name: 'Istanbul Sabiha Gokcen', hdg: 60, len: 3000 },
+  { code: 'AYT', name: 'Antalya', hdg: 180, len: 3400 },
+  { code: 'PKX', name: 'Beijing Daxing', hdg: 170, len: 3800 },
+  { code: 'CKG', name: 'Chongqing', hdg: 20, len: 3200 },
+  { code: 'XIY', name: 'Xian', hdg: 50, len: 3800 },
+  { code: 'KMG', name: 'Kunming', hdg: 220, len: 4500 },
+  { code: 'PUS', name: 'Busan', hdg: 180, len: 3200 },
+  { code: 'GMP', name: 'Seoul Gimpo', hdg: 140, len: 3200 },
+  { code: 'KHH', name: 'Kaohsiung', hdg: 90, len: 3150 },
+  { code: 'PEN', name: 'Penang', hdg: 40, len: 3350 },
+  { code: 'BKI', name: 'Kota Kinabalu', hdg: 150, len: 2987 },
+  { code: 'CEB', name: 'Cebu', hdg: 40, len: 3300 },
+  { code: 'DAD', name: 'Da Nang', hdg: 170, len: 3500 },
+  { code: 'HYD', name: 'Hyderabad', hdg: 90, len: 4260 },
+  { code: 'MAA', name: 'Chennai', hdg: 70, len: 3658 },
+  { code: 'COK', name: 'Kochi', hdg: 90, len: 3400 },
+  { code: 'AMD', name: 'Ahmedabad', hdg: 50, len: 3505 },
+  { code: 'ISB', name: 'Islamabad', hdg: 30, len: 3600 },
+  { code: 'ABJ', name: 'Abidjan', hdg: 30, len: 3300 },
+  { code: 'LAD', name: 'Luanda', hdg: 70, len: 3715 },
+  { code: 'WDH', name: 'Windhoek', hdg: 80, len: 4500 },
+  { code: 'MCI', name: 'Kansas City', hdg: 10, len: 3290 },
+  { code: 'STL', name: 'St Louis', hdg: 110, len: 3350 },
+  { code: 'CVG', name: 'Cincinnati', hdg: 180, len: 3660 },
+  { code: 'PIT', name: 'Pittsburgh', hdg: 100, len: 3500 },
+  { code: 'CLE', name: 'Cleveland', hdg: 60, len: 3050 },
+  { code: 'SJC', name: 'San Jose California', hdg: 120, len: 3350 }
 ];
 // real latitude and longitude of each airport, in degrees
 const GEO_AIRPORTS = {
@@ -1120,7 +1166,8 @@ const GEO_AIRPORTS = {
   ATL: [33.64, -84.43], DFW: [32.9, -97.04], SEA: [47.45, -122.31], LAS: [36.08, -115.15], BOS: [42.36, -71.01], MSP: [44.88, -93.22], YVR: [49.19, -123.18], MCO: [28.43, -81.31], AMS: [52.31, 4.76], MAD: [40.49, -3.57], BCN: [41.3, 2.08], FCO: [41.8, 12.25], MUC: [48.35, 11.79], ZRH: [47.46, 8.55], DOH: [25.27, 51.61], BKK: [13.69, 100.75], KUL: [2.75, 101.71], CGK: [-6.13, 106.66], BOM: [19.09, 72.87], PVG: [31.14, 121.81], KIX: [34.43, 135.23], EZE: [-34.82, -58.54], SCL: [-33.39, -70.79], ADD: [8.98, 38.8], CPT: [-33.97, 18.6], MEL: [-37.67, 144.84],
   HNL: [21.32, -157.92], PHX: [33.43, -112.01], IAH: [29.98, -95.34], EWR: [40.69, -74.17], DTW: [42.21, -83.35], PHL: [39.87, -75.24], CLT: [35.21, -80.94], SLC: [40.79, -111.98], SAN: [32.73, -117.19], YUL: [45.47, -73.74], YYC: [51.11, -114.02], ANC: [61.17, -149.99], LIM: [-12.02, -77.11], BOG: [4.7, -74.15], GIG: [-22.81, -43.25], DUB: [53.42, -6.27], MAN: [53.35, -2.27], LIS: [38.77, -9.13], ATH: [37.94, 23.94], CPH: [55.62, 12.65], ARN: [59.65, 17.92], OSL: [60.19, 11.1], SVO: [55.97, 37.41], RUH: [24.96, 46.7], JED: [21.68, 39.16], TLV: [32.01, 34.89], NBO: [-1.32, 36.93], LOS: [6.58, 3.32], CMN: [33.37, -7.59], BLR: [13.2, 77.71], CCU: [22.65, 88.45], SGN: [10.82, 106.66], MNL: [14.51, 121.02], TPE: [25.08, 121.23], BNE: [-27.38, 153.12], PER: [-31.94, 115.97],
   LGW: [51.15, -0.19], STN: [51.89, 0.26], BRU: [50.9, 4.48], VIE: [48.11, 16.57], PRG: [50.1, 14.26], BUD: [47.44, 19.26], MXP: [45.63, 8.72], NCE: [43.66, 7.22], GVA: [46.24, 6.11], HAM: [53.63, 10.0], LED: [59.8, 30.26], AUH: [24.43, 54.65], MCT: [23.59, 58.28], KWI: [29.23, 47.97], CMB: [7.18, 79.88], KTM: [27.7, 85.36], DAC: [23.84, 90.4], KHI: [24.91, 67.16], HAN: [21.22, 105.81], CTU: [30.58, 103.95], SZX: [22.64, 113.81], NRT: [35.77, 140.39], CTS: [42.78, 141.69], FUK: [33.59, 130.45], CJU: [33.51, 126.49], ADL: [-34.95, 138.53], WLG: [-41.33, 174.81], DUR: [-29.97, 30.95], MRU: [-20.43, 57.68], PDX: [45.59, -122.6], AUS: [30.19, -97.67], BWI: [39.18, -76.67], TPA: [27.98, -82.53], CUN: [21.04, -86.87], SJU: [18.44, -66.0], HAV: [22.99, -82.41], MVD: [-34.84, -56.03],
-  LGA: [40.78, -73.87], ORY: [48.72, 2.38], BER: [52.36, 13.5], OTP: [44.57, 26.08], SOF: [42.7, 23.41], BEG: [44.82, 20.31], KEF: [63.99, -22.61], PMI: [39.55, 2.73], AGP: [36.67, -4.5], AMM: [31.72, 35.99], BEY: [33.82, 35.49], TAS: [41.26, 69.28], ALA: [43.35, 77.04], MLE: [4.19, 73.53], HKT: [8.11, 98.32], DPS: [-8.75, 115.17], HGH: [30.23, 120.43], NGO: [34.86, 136.81], OKA: [26.2, 127.65], PPT: [-17.56, -149.61], NAN: [-17.76, 177.44], GUM: [13.48, 144.8], POM: [-9.44, 147.22], ALG: [36.69, 3.22], TUN: [36.85, 10.23], EBB: [0.04, 32.44], DAR: [-6.88, 39.2], HRE: [-17.93, 31.09], SJO: [9.99, -84.21], CCS: [10.6, -66.99]
+  LGA: [40.78, -73.87], ORY: [48.72, 2.38], BER: [52.36, 13.5], OTP: [44.57, 26.08], SOF: [42.7, 23.41], BEG: [44.82, 20.31], KEF: [63.99, -22.61], PMI: [39.55, 2.73], AGP: [36.67, -4.5], AMM: [31.72, 35.99], BEY: [33.82, 35.49], TAS: [41.26, 69.28], ALA: [43.35, 77.04], MLE: [4.19, 73.53], HKT: [8.11, 98.32], DPS: [-8.75, 115.17], HGH: [30.23, 120.43], NGO: [34.86, 136.81], OKA: [26.2, 127.65], PPT: [-17.56, -149.61], NAN: [-17.76, 177.44], GUM: [13.48, 144.8], POM: [-9.44, 147.22], ALG: [36.69, 3.22], TUN: [36.85, 10.23], EBB: [0.04, 32.44], DAR: [-6.88, 39.2], HRE: [-17.93, 31.09], SJO: [9.99, -84.21], CCS: [10.60, -66.99],
+  DUS: [51.29, 6.77], CGN: [50.87, 7.14], STR: [48.69, 9.22], LYS: [45.73, 5.09], MRS: [43.44, 5.22], TLS: [43.63, 1.37], OPO: [41.24, -8.68], VLC: [39.49, -0.48], NAP: [40.89, 14.29], EDI: [55.95, -3.37], GLA: [55.87, -4.43], BHX: [52.45, -1.75], GOT: [57.66, 12.28], RIX: [56.92, 23.97], TLL: [59.41, 24.83], KRK: [50.08, 19.78], IKA: [35.42, 51.15], BAH: [26.27, 50.63], SHJ: [25.33, 55.52], SAW: [40.9, 29.31], AYT: [36.9, 30.8], PKX: [39.51, 116.41], CKG: [29.72, 106.64], XIY: [34.45, 108.75], KMG: [25.1, 102.93], PUS: [35.18, 128.94], GMP: [37.56, 126.8], KHH: [22.58, 120.35], PEN: [5.3, 100.28], BKI: [5.94, 116.05], CEB: [10.31, 123.98], DAD: [16.04, 108.2], HYD: [17.24, 78.43], MAA: [12.99, 80.17], COK: [10.15, 76.4], AMD: [23.07, 72.63], ISB: [33.55, 72.83], ABJ: [5.26, -3.93], LAD: [-8.86, 13.23], WDH: [-22.48, 17.46], MCI: [39.3, -94.71], STL: [38.75, -90.37], CVG: [39.05, -84.67], PIT: [40.49, -80.23], CLE: [41.41, -81.85], SJC: [37.36, -121.93]
 };
 // Runways are kept to 2600 m (2000 m for the airports added later) so they all fit in the 12 km world. Each airport is placed where its runway
 // stays clear of the home runway and of the other airports, otherwise their flat pads would bury each other.
@@ -1130,7 +1177,7 @@ const AIRPORTS = [];
   const homeGap = ([px, pz]) => Math.hypot(Math.max(Math.abs(px) - RUNWAY.x, 0), Math.max(RUNWAY.z0 - pz, pz - RUNWAY.z1, 0));
   AIRPORT_DATA.forEach((a, i) => {
     let hdgRad = a.hdg * Math.PI / 180, ux = Math.sin(hdgRad), uz = Math.cos(hdgRad);
-    let len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : 800)), spot = null;
+    let len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : i < 153 ? 800 : 600)), spot = null;
     if (REGION) {
       // scan the whole map for the flattest, driest strip; the runway may turn up to 25 degrees from its real heading
       const cap = len, hl2 = cap / 2, base0 = hdgRad;
@@ -1168,7 +1215,7 @@ const AIRPORTS = [];
       return lo < WATER + 1.5 ? 1e9 : hi - lo;
     };
     if (!spot) for (const [gap, shrink, flatLimit] of [[450, 1, 40], [300, 1, 70], [180, 1, 120], [180, 0.75, 180], [120, 0.6, 320]]) {
-      len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : 800)) * shrink;
+      len = Math.min(a.len, (i < 12 ? 2600 : i < 24 ? 2000 : i < 50 ? 1500 : i < 86 ? 1200 : i < 123 ? 1000 : i < 153 ? 800 : 600)) * shrink;
       const hl = len / 2;
       for (let t = 0; t < 1500 && !spot; t++) {
         const ang = hash2(i, 600 + t) * Math.PI * 2, d = 1200 + hash2(i, 3000 + t) * 4200;
