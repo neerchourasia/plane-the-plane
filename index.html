@@ -3255,7 +3255,10 @@ addEventListener('keydown', e => {
   if (e.code === 'BracketLeft' && !e.repeat) plane.flaps = Math.max(0, plane.flaps - 1);
   // number keys set throttle directly: 1 = lowest, 9 = full, 0 = idle
   const digit = e.code.match(/^(?:Digit|Numpad)([0-9])$/);
-  if (digit) plane.throttle = Number(digit[1]) / 9;
+  if (digit) {
+    if (plane.ap && plane.ap.ils) { plane.ap = null; flashNote('ILS AUTOLAND OFF: YOU HAVE THE THROTTLE'); }
+    plane.throttle = Number(digit[1]) / 9;
+  }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
