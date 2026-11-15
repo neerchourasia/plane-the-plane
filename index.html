@@ -108,7 +108,7 @@
 // The land: a real region's height map (terrain-<name>.js, real elevation data) or the classic made-up land.
 var REGION_ID = 'classic';
 try { REGION_ID = localStorage.getItem('plane-the-plane-region') || 'classic'; } catch (e) { /* storage blocked */ }
-if (!/^(alps|canyon|hawaii|rainier|everest|fjord|fuji|iceland|dolomites|patagonia)$/.test(REGION_ID)) REGION_ID = 'classic';
+if (!/^(alps|canyon|hawaii|rainier|everest|fjord|fuji|iceland|dolomites|patagonia|tenerife|mtcook|yosemite|glencoe)$/.test(REGION_ID)) REGION_ID = 'classic';
 if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID + '.js"><\/script>');
 </script>
 <style>
@@ -722,6 +722,23 @@ function buildAircraft(m) {
     }
   }
 
+  // passenger doors (one at the front, one at the back of the cabin) and the overwing exits: thin dark frames on each side
+  if (win && L > 20) {
+    const FRAME = [64, 68, 80];
+    const sideXd = (z, y) => { const t = (z + L / 2) / L, r = radiusAt(t), sn = (y - droopAt(t)) / (r * upAt(t)); return Math.abs(sn) > 0.97 ? null : r * Math.sqrt(1 - sn * sn); };
+    const frame = (zc, wd, ht, yb, k) => {
+      const e = 0.05, pt = (z, y) => { const x = sideXd(z, y); return x === null ? null : [k * (x + 0.014), y, z]; };
+      const bars = [[zc - wd / 2, yb, zc + wd / 2, yb + e], [zc - wd / 2, yb + ht - e, zc + wd / 2, yb + ht], [zc - wd / 2, yb, zc - wd / 2 + e, yb + ht], [zc + wd / 2 - e, yb, zc + wd / 2, yb + ht]];
+      for (const [z0, y0b, z1, y1b] of bars) { const q = [pt(z0, y0b), pt(z1, y0b), pt(z1, y1b), pt(z0, y1b)]; if (q.every(Boolean)) flat(q, FRAME); }
+    };
+    const zFront = -L / 2 + (win[0] - 0.035) * L, zBack = -L / 2 + (win[1] + 0.025) * L;
+    for (const k of [-1, 1]) {
+      frame(zFront, Math.max(0.9, R * 0.5), R * 1.05, -R * 0.45, k);
+      frame(zBack, Math.max(0.9, R * 0.5), R * 1.0, -R * 0.45, k);
+      if (L > 28) frame(sp.wing.z - 0.4, Math.max(0.55, R * 0.28), R * 0.55, R * 0.05, k);   // the overwing exit
+    }
+  }
+
   // fighter canopy: a glass bubble on top of the body
   if (sp.canopy) {
     const c = sp.canopy, K = 8, rs = [];
@@ -799,6 +816,10 @@ function buildAircraft(m) {
   hinge(sp.wing, sp.wing.span * 0.62, sp.wing.span * 0.94, 0.74);                  // aileron
   hinge(sp.wing, R * 0.6 + 0.35, sp.wing.span * 0.48, 0.74);                       // flap
   hinge(tailWg, R * 0.6 + 0.1, tailWg.span * 0.9, 0.68, tailLE);                   // elevator
+  if (L > 14 && !sp.prop) {
+    hinge(sp.wing, R * 0.6 + 0.4, sp.wing.span * 0.9, 0.1, undefined, 0.035);       // the slat line along the leading edge
+    hinge(sp.wing, R * 0.6 + 0.6, sp.wing.span * 0.5, 0.5);                         // the spoiler panels
+  }
 
   // fin: a thin wedge. The leading edge bows forward, the tip is rounded, a dorsal fillet blends it into the body,
   // and a hinge line marks the rudder.
@@ -822,6 +843,11 @@ function buildAircraft(m) {
       const at = t => [k * (thAt(t) + 0.006), y0 + f.h * t, zTE(t) + 0.32 * (zLE(t) - zTE(t))];
       flat([at(0.06), at(0.84), [k * (thAt(0.84) + 0.006), y0 + f.h * 0.84, zTE(0.84) + 0.28 * (zLE(0.84) - zTE(0.84))], [k * (thAt(0.06) + 0.006), y0 + f.h * 0.06, zTE(0.06) + 0.28 * (zLE(0.06) - zTE(0.06))]], HINGE);
     }
+    // the airline's mark on the fin: a round disc in the stripe colour (it takes the livery's stripe paint)
+    if (sp.stripe && f.h > 1.4) {
+      const tc = 0.5, zc = (zLE(tc) + zTE(tc)) / 2, yc = y0 + f.h * tc, rd = Math.min(f.h * 0.2, (zLE(tc) - zTE(tc)) * 0.3);
+      for (const k of [-1, 1]) flat(Array.from({ length: 16 }, (_, j) => { const a = j / 16 * Math.PI * 2; return [k * (thAt(tc) + 0.01), yc + Math.sin(a) * rd, zc + Math.cos(a) * rd]; }), sp.stripe);
+    }
     // dorsal fillet: a low fairing from the fuselage ridge up into the leading edge, painted like the body
     flat([[0, y0 - 0.04, f.z + R * 2.2], [0, y0 + f.h * 0.22, zLE(0.22) + 0.02], [0, y0, f.z]], sp.body);
   }
@@ -832,7 +858,7 @@ function buildAircraft(m) {
     const prof = [0.92, 1, 1, 0.9, 0.8];
     const rs = prof.map((k, i) => ringAt(cx, cy, r * k, zF - i / (prof.length - 1) * ln));
     const ec = sp.engineCol || ENGINE;
-    tube(rs, cx, cy, i => (i === 0 ? INTAKE : i === prof.length - 2 ? mul(ec, 0.8) : ec));
+    tube(rs, cx, cy, i => (i === 0 ? INTAKE : i === prof.length - 2 ? mul(ec, 0.8) : i === 1 ? mul(ec, 1.2) : ec));   // a lighter ring around the cowl
     flat(rs[0], INTAKE);
     if (!sp.prop) {
       // fan blades and a spinner in the intake, and a cone at the exhaust
@@ -903,15 +929,28 @@ function buildAircraft(m) {
   const gl = Math.max(0.8, L * 0.04);
   m.gearLen = gl;
   const gear = [];
+  // a wheel is a short drum with a hub cap on each side (twelve flat panels around it)
+  const wheel3D = (x, z, wr, ww) => {
+    const K = 12, ring = (xx, r) => Array.from({ length: K }, (_, j) => { const th = 2 * Math.PI * j / K; return [xx, -gl + wr + r * Math.sin(th), z + r * Math.cos(th)]; });
+    const a = ring(x - ww / 2, wr), b = ring(x + ww / 2, wr);
+    for (let j = 0; j < K; j++) { const j2 = (j + 1) % K; gear.push({ pts: [a[j], a[j2], b[j2], b[j]], col: [26, 26, 30], two: true }); }
+    gear.push({ pts: ring(x - ww / 2 - 0.01, wr * 0.98), col: [30, 30, 34], two: true });
+    gear.push({ pts: ring(x + ww / 2 + 0.01, wr * 0.98), col: [30, 30, 34], two: true });
+    gear.push({ pts: ring(x - ww / 2 - 0.02, wr * 0.5), col: [176, 180, 190], two: true });
+    gear.push({ pts: ring(x + ww / 2 + 0.02, wr * 0.5), col: [176, 180, 190], two: true });
+  };
   const leg = (x, z) => {
+    const wr = Math.max(0.2, gl * 0.17), ww = Math.max(0.16, wr * 0.55);
     gear.push({ pts: [[x, 0.3, z - 0.08], [x, 0.3, z + 0.08], [x, -gl * 0.85, z + 0.08], [x, -gl * 0.85, z - 0.08]], col: [150, 150, 156], two: true });
-    gear.push({ pts: [[x - 0.25, -gl, z], [x + 0.25, -gl, z], [x + 0.25, -gl * 0.65, z], [x - 0.25, -gl * 0.65, z]], col: [30, 30, 34], two: true });
+    gear.push({ pts: [[x, -gl * 0.5, z - 0.1], [x, -gl * 0.5, z + 0.1], [x, -gl * 0.85, z + 0.1], [x, -gl * 0.85, z - 0.1]], col: [90, 94, 104], two: true });   // the lower, darker part of the strut
+    if (L < 12) wheel3D(x, z, wr, ww * 1.3);   // a light plane has one tyre on each leg
+    else { wheel3D(x - ww * 0.9, z, wr, ww); wheel3D(x + ww * 0.9, z, wr, ww); }   // bigger planes a pair
   };
   leg(0, L * 0.32);                                   // nose gear
   const mx = Math.max(R * 0.8, 0.9), mz = sp.wing.z - 0.5;
   leg(-mx, mz); leg(mx, mz);                          // main gear
   if (L > 30) {   // big planes: more axles on each main leg, and a belly gear on the biggest
-    const wheel = (x, z) => gear.push({ pts: [[x - 0.3, -gl, z], [x + 0.3, -gl, z], [x + 0.3, -gl * 0.65, z], [x - 0.3, -gl * 0.65, z]], col: [30, 30, 34], two: true });
+    const wheel = (x, z) => { const wr = Math.max(0.3, gl * 0.17); wheel3D(x - wr * 0.5, z, wr, wr * 0.55); wheel3D(x + wr * 0.5, z, wr, wr * 0.55); };
     for (const k of [-1, 1]) { wheel(k * mx, mz + 1.5); wheel(k * mx, mz - 1.5); }
     if (L > 60) { leg(-mx * 0.45, mz - 2.5); leg(mx * 0.45, mz - 2.5); }
   }
@@ -1022,7 +1061,11 @@ const LAND = REGION
        fuji: { rockH: 520, snowH: 700, rock: [70, 66, 66], tint: [48, 96, 52], tintK: 0.45 },
        iceland: { rockH: 260, snowH: 430, rock: [72, 68, 66], tint: [86, 104, 62], tintK: 0.55 },
        dolomites: { rockH: 420, snowH: 650, rock: [176, 170, 160], tint: [62, 102, 58], tintK: 0.35 },
-       patagonia: { rockH: 520, snowH: 740, rock: [122, 114, 104], tint: [150, 140, 92], tintK: 0.5 } })[REGION.id]
+       patagonia: { rockH: 520, snowH: 740, rock: [122, 114, 104], tint: [150, 140, 92], tintK: 0.5 },
+       tenerife: { rockH: 99999, snowH: 99999, rock: [96, 78, 66], tint: [170, 150, 96], tintK: 0.5 },
+       mtcook: { rockH: 430, snowH: 640, rock: [118, 112, 104], tint: [160, 148, 96], tintK: 0.45 },
+       yosemite: { rockH: 420, snowH: 700, rock: [170, 164, 154], tint: [60, 100, 56], tintK: 0.3 },
+       glencoe: { rockH: 380, snowH: 760, rock: [96, 92, 86], tint: [88, 104, 62], tintK: 0.5 } })[REGION.id]
   : { rockH: 350, snowH: 700, rock: ROCK };
 // true on steep ground, so houses are not put on a cliff
 const steep = (x, z) => Math.abs(naturalAt(x + 40, z) - naturalAt(x - 40, z)) > 30 || Math.abs(naturalAt(x, z + 40) - naturalAt(x, z - 40)) > 30;
@@ -2638,7 +2681,11 @@ const REGION_LIST = [
   { id: 'fuji', name: 'Japan, Mount Fuji', text: 'Dark forest around a blue lake, under the great cone of Mount Fuji.' },
   { id: 'iceland', name: 'Iceland, Thingvellir', text: 'A huge lake in a rift valley, black lava fields and mossy hills.' },
   { id: 'dolomites', name: 'Italy, Dolomites, Cortina', text: 'Pale rock towers rising over green alpine valleys.' },
-  { id: 'patagonia', name: 'Patagonia, Torres del Paine', text: 'Wind-swept steppe below jagged granite spires and glaciers.' }
+  { id: 'patagonia', name: 'Patagonia, Torres del Paine', text: 'Wind-swept steppe below jagged granite spires and glaciers.' },
+  { id: 'tenerife', name: 'Tenerife, Teide', text: 'Dry volcanic slopes falling to cliffs and the Atlantic under Spain\'s highest peak.' },
+  { id: 'mtcook', name: 'New Zealand, Mount Cook', text: 'Braided river flats under the snowy Southern Alps and Aoraki.' },
+  { id: 'yosemite', name: 'California, Yosemite Valley', text: 'A granite valley floor between huge cliffs and domes.' },
+  { id: 'glencoe', name: 'Scotland, Glencoe', text: 'Steep bare glens running down to sea lochs.' }
 ];
 let regionsOpen = false;
 function toggleRegions() {
@@ -3243,7 +3290,11 @@ function awardLanding(impact) {
     return;
   }
   const grade = impact < 1 ? 'BUTTER' : impact < 2.5 ? 'GREAT' : impact < 5 ? 'OK' : 'HARD';
-  makeLandingReport(impact, nearestFieldIndex(p));
+  { // the runway you were lined up on, if you touched down on it (the nearest airport centre can be a different one when airports crowd)
+    const last = landTrack.pts.length ? landTrack.pts[landTrack.pts.length - 1].i : -1, A = AIRPORTS[last];
+    const onIt = A && Math.hypot(p.pos[0] - A.x, p.pos[2] - A.z) < A.len / 2 + 400;
+    makeLandingReport(impact, onIt ? last : nearestFieldIndex(p));
+  }
   // landing score for the online board, and a shout on the shared channel for the best and worst landings
   save.landingScore = (save.landingScore || 0) + ({ BUTTER: 10, GREAT: 6, OK: 3, HARD: 0 })[grade];
   if (grade === 'BUTTER') { save.butters = (save.butters || 0) + 1; weeklyAdd('butter', 1); }
@@ -4297,7 +4348,8 @@ function update(dt) {
     // a stall: below the stall speed the wing quits flying, the nose drops and a wing may go down. Push the nose forward and add power to
     // pick up speed again; the break eases off as the airspeed comes back.
     const stallV = stallSpeed(p);
-    if (!p.onGround && p.speed < stallV && !p.ap) {
+    // (not within a few metres of the ground: a hop off a bumpy runway at low speed must not nose into it)
+    if (!p.onGround && p.speed < stallV && !p.ap && p.pos[1] - terrainAt(p.pos[0], p.pos[2]) > 12) {
       const depth = clamp(1 - p.speed / stallV, 0, 1);
       p.stalled = true;
       p.pitch = clamp(p.pitch - (1.0 + 2.2 * depth) * dt, -1.2, 1.4);
@@ -6552,7 +6604,7 @@ function buildTreeData(map) {
   const nearRiver = (x, z) => RIVERS.some(r => Math.abs(x - riverX(r, z)) < 40);
   const NC = Math.round(12 * WS), CH = 1000;   // chunks of 1 km
   const conif = Array.from({ length: NC * NC }, () => []), broad = Array.from({ length: NC * NC }, () => []);
-  const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1, everest: 0.6, fjord: 0.75, fuji: 0.8, iceland: 0.25, dolomites: 0.85, patagonia: 0.4 })[REGION.id] : 0.45;
+  const coniferFrac = REGION ? ({ alps: 0.7, rainier: 0.92, canyon: 0.9, hawaii: 0.1, everest: 0.6, fjord: 0.75, fuji: 0.8, iceland: 0.25, dolomites: 0.85, patagonia: 0.4, tenerife: 0.5, mtcook: 0.3, yosemite: 0.85, glencoe: 0.2 })[REGION.id] : 0.45;
   const STEP = lowGfx() ? 31 : 23, G = Math.floor(2 * TER_HALF / STEP);   // fewer trees on a slow device
   for (let gi = 0; gi < G; gi++) {
     for (let gj = 0; gj < G; gj++) {
@@ -7640,5 +7692,7 @@ requestAnimationFrame(frame);
 // Let the game load and run without wifi once it has been visited online.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
+<script>if (/[?&]selftest\b/.test(location.search)) document.write('<script src="selftest.js"><\/script>');</script>
+<script>if (/[?&]shot=/.test(location.search)) document.write('<script src="shot.js"><\/script>');</script>
 </body>
 </html>
