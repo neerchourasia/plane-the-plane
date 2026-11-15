@@ -338,10 +338,17 @@ const canvas = document.getElementById('c');
 const sceneCtx = canvas.getContext('2d');
 let ctx = sceneCtx;                          // whichever layer is being drawn into
 const glCanvas = document.getElementById('gl');
-const gl = glCanvas.getContext('webgl', { antialias: true, alpha: true, premultipliedAlpha: true });
+// WebGL, tried with fewer demands each time it is refused; the browser's own reason is kept for ?gldebug=1
+const glErrors = [];
+const getGL = (cv, tries) => {
+  cv.addEventListener('webglcontextcreationerror', e => glErrors.push(e.statusMessage || 'refused'));
+  for (const [kind, opts] of tries) { try { const c = cv.getContext(kind, opts); if (c) return c; } catch (e) { glErrors.push(String(e)); } }
+  return null;
+};
+const gl = getGL(glCanvas, [['webgl', { antialias: true, alpha: true, premultipliedAlpha: true }], ['webgl', { antialias: false, alpha: true, premultipliedAlpha: true }], ['webgl', { alpha: true }], ['experimental-webgl', { alpha: true }]]);
 // the ground is drawn in WebGL (smooth lighting and a fine texture); the objects on it (buildings, trees, roads, runways, clouds) are 2D above it
 const tglCanvas = document.getElementById('tgl'), objCanvas = document.getElementById('obj');
-const tgl = tglCanvas.getContext('webgl', { antialias: false, alpha: true, premultipliedAlpha: true });
+const tgl = getGL(tglCanvas, [['webgl', { antialias: false, alpha: true, premultipliedAlpha: true }], ['webgl', { alpha: true }], ['experimental-webgl', { alpha: true }]]);
 const objCtx = objCanvas.getContext('2d');
 let terrainGL = null;   // set once the world is built; stays null if WebGL cannot draw the ground (the old 2D ground is the fallback)
 const fxCanvas = document.getElementById('fx');

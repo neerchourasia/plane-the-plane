@@ -21,6 +21,8 @@
     const p = plane, lines = [];
     lines.push('GL DEBUG  ' + navigator.userAgent.replace(/\(.*?\)/, '').slice(0, 90));
     lines.push('renderer: ' + renderer);
+    lines.push('webgl refusals: ' + (glErrors.length ? glErrors.join(' | ') : 'none recorded'));
+    { const probe = document.createElement('canvas'); let w1 = false, w2 = false; try { w1 = !!probe.getContext('webgl'); } catch (e) { /* no */ } try { w2 = !!document.createElement('canvas').getContext('webgl2'); } catch (e) { /* no */ } lines.push('a fresh canvas gets webgl: ' + w1 + '  webgl2: ' + w2); }
     lines.push('gl context: ' + (gl ? (gl.isContextLost() ? 'LOST' : 'ok') : 'NONE') + '   terrainGL: ' + (terrainGL ? 'ok' : 'none'));
     if (gl && planeProg) {
       lines.push('plane program linked: ' + gl.getProgramParameter(planeProg, gl.LINK_STATUS) + '  log: ' + (gl.getProgramInfoLog(planeProg) || 'none'));
