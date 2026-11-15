@@ -245,7 +245,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
 <button id="soundBtn" title="Sound on or off (M)">SOUND ON</button>
 <button id="gfxBtn" title="Graphics: auto lowers the detail on a slow device">GFX AUTO</button>
 <button id="setBtn" title="Settings (Esc)">SETTINGS</button>
-<div id="loading" style="position:fixed;inset:0;z-index:50;background:#08121f;color:#cfe8f5;display:flex;align-items:center;justify-content:center;font:16px ui-monospace,Menlo,Consolas,monospace;text-align:center"><div style="display:flex;flex-direction:column;align-items:center"><style>@keyframes ballspin{to{transform:rotate(360deg)}}</style><img src="favicon.svg" alt="" width="96" height="96" style="animation:ballspin 1.4s linear infinite;margin-bottom:18px">Plane the Plane<br><span style="font-size:12px;opacity:.7">building the world...</span></div></div>
+<div id="loading" style="position:fixed;inset:0;z-index:50;background:#08121f;color:#cfe8f5;display:flex;align-items:center;justify-content:center;font:16px ui-monospace,Menlo,Consolas,monospace;text-align:center">Plane the Plane<br><span style="font-size:12px;opacity:.7">building the world...</span></div>
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
@@ -3255,10 +3255,7 @@ addEventListener('keydown', e => {
   if (e.code === 'BracketLeft' && !e.repeat) plane.flaps = Math.max(0, plane.flaps - 1);
   // number keys set throttle directly: 1 = lowest, 9 = full, 0 = idle
   const digit = e.code.match(/^(?:Digit|Numpad)([0-9])$/);
-  if (digit) {
-    if (plane.ap && plane.ap.ils) { plane.ap = null; flashNote('ILS AUTOLAND OFF: YOU HAVE THE THROTTLE'); }
-    plane.throttle = Number(digit[1]) / 9;
-  }
+  if (digit) plane.throttle = Number(digit[1]) / 9;
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -5856,7 +5853,7 @@ function drawHUD(now) {
   ctx.fillStyle = p.throttle > 0.9 ? PAL.warn : PAL.good;
   ctx.fillRect(bx, by, bw * p.throttle, 10);
 
-  if (p.stalled && !p.model.heli && !p.onGround && !p.crashed && Math.floor(now / 250) % 2 === 0) {
+  if (!p.onGround && !p.crashed && p.speed < stallSpeed(p) + 4 && Math.floor(now / 250) % 2 === 0) {
     setFont(28, true);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
