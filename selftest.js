@@ -140,6 +140,15 @@
       const bad = MODELS.filter(m => !(m.mesh && m.mesh.length > 200) || !(m.ext && m.ext.len > 1)).map(m => m.name);
       return { ok: bad.length === 0, detail: `${MODELS.length} models${bad.length ? ', bad: ' + bad.join(',') : ''}` };
     });
+    check('models: every plane draws triangles with valid numbers when you fly it', () => {
+      const bad = [];
+      for (const m of MODELS) {
+        save.selected = MODELS.indexOf(m); resetPlane(1); plane.pos = [0, terrainAt(0, 0) + 200, 0]; plane.onGround = false; view = 0; render();
+        const n = planeTris.length, nan = planeTris.some(t => t.pts.some(p => !p.every(Number.isFinite)) || !t.col.every(Number.isFinite));
+        if (n < 100 || nan) bad.push(`${m.name} (${n} triangles${nan ? ', not-a-number values' : ''})`);
+      }
+      return { ok: bad.length === 0, detail: bad.join('; ') || `${MODELS.length} planes all draw` };
+    });
     check('graphics: the world drew a frame without errors', () => {
       if (!terrainGL) return { ok: true, detail: 'no WebGL here: the flat fallback is used (skipped)' };
       useModel('737'); resetPlane(1); render();

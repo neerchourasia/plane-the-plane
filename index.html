@@ -5120,6 +5120,8 @@ function render() {
   if (wreck && wreck.t < 1.2) { const k = (1.2 - wreck.t) * Math.min(6, 1 + wreck.hit / 12); target[0] += (Math.random() - 0.5) * k; target[1] += (Math.random() - 0.5) * k; target[2] += (Math.random() - 0.5) * k; }
   // in a stall the whole view buffets
   if (p.stallShake) { const k = 0.5 + 2.5 * p.stallShake; target[0] += (Math.random() - 0.5) * k; target[1] += (Math.random() - 0.5) * k; target[2] += (Math.random() - 0.5) * k; }
+  // if ground rises between the camera and your plane (a slope behind the runway), move the camera in until it can see the plane
+  if (view === 0 || view === 2) for (let i = 0; i < 7 && blockedFrom(eye, p.pos); i++) { eye = [p.pos[0] + (eye[0] - p.pos[0]) * 0.72, p.pos[1] + (eye[1] - p.pos[1]) * 0.72 + 1.5, p.pos[2] + (eye[2] - p.pos[2]) * 0.72]; }
   // the camera never sinks into a hill
   eye[1] = Math.max(eye[1], terrainAt(eye[0], eye[2]) + 3);
   const cf = norm(sub(target, eye));
@@ -5414,7 +5416,7 @@ function render() {
   // the aircraft itself: every face of its mesh, painted with the rest of the scene
   const toWorld = v => add(p.pos, add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2])));
   // hidden when a hill is in the way
-  if (!inCockpit() && !blockedFrom(eye, p.pos)) {
+  if (!inCockpit()) {   // your own plane is always drawn (the camera moves in if a hill is in the way)
     // propeller blades turn about the hub, faster at higher throttle
     const ang = performance.now() / 1000 * (4 + 40 * p.throttle), ca = Math.cos(ang), sa = Math.sin(ang), hub = p.model.hub;
     const spun = pts => pts.map(([x, y, z]) => { const dy = y - hub[1]; return [x * ca - dy * sa, hub[1] + x * sa + dy * ca, z]; });

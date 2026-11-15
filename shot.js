@@ -21,6 +21,12 @@
       const d = Math.max(m.ext.len, m.ext.span) * 1.9;
       photoMode = true; look([d * 0.8, yLow + m.ext.len * 0.12, d * 0.55], [0, yLow + m.ext.len * 0.04, 0]);
       window.__gear = true;
+    } else if (name.startsWith('takeoff')) {
+      // the plane rolling down the home runway in the chase view; takeoff-NAME picks the plane
+      const model = name.slice(8).replace(/_/g, ' ') || 'Trainer';
+      save.selected = Math.max(0, MODELS.findIndex(m => m.name.toLowerCase() === model.toLowerCase())); resetPlane(1);
+      plane.throttle = 1; view = 0;
+      for (let i = 0; i < 100; i++) update(0.05);
     } else if (name.startsWith('crash')) {
       // a 737 flies into the ground at speed; crash-0 is the moment of the explosion, crash-1 is a few seconds later, crash-sea is a crash into water
       const sea = name.endsWith('sea');
