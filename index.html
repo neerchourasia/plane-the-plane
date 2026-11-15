@@ -5508,6 +5508,20 @@ function render() {
     fillPolys([hull(ground).map(([x, z]) => toCam([x, terrainAt(x, z) + 0.05, z]))], `rgba(0,0,0,${alpha})`);
   }
 
+  if (!gl && !window.__noGlTold) { window.__noGlTold = true; noteText = 'THIS BROWSER HAS NO WEBGL: SIMPLE GRAPHICS. FOR THE FULL LOOK OPEN THE GAME IN CHROME OR SAFARI'; noteUntil = performance.now() + 12000; }
+  // no WebGL in this browser: the aircraft (and anything else sent to the WebGL layer) is painted flat, far to near, with the rest of the scene
+  if (!gl) {
+    const tris = planeTris.slice(), world = (it, v) => [it.pos[0] + it.rt[0] * v[0] + it.up[0] * v[1] + it.f[0] * v[2], it.pos[1] + it.rt[1] * v[0] + it.up[1] * v[1] + it.f[1] * v[2], it.pos[2] + it.rt[2] * v[0] + it.up[2] * v[1] + it.f[2] * v[2]];
+    const dirOf = (it, v) => [it.rt[0] * v[0] + it.up[0] * v[1] + it.f[0] * v[2], it.rt[1] * v[0] + it.up[1] * v[1] + it.f[1] * v[2], it.rt[2] * v[0] + it.up[2] * v[1] + it.f[2] * v[2]];
+    planeInstances.filter(it => Math.hypot(it.pos[0] - eye[0], it.pos[2] - eye[2]) < 900).sort((a, b) => Math.hypot(a.pos[0] - eye[0], a.pos[2] - eye[2]) - Math.hypot(b.pos[0] - eye[0], b.pos[2] - eye[2])).slice(0, 6).forEach(it => {
+      for (const face of it.m.mesh) if (!face.spin && !face.spinH) tris.push({ pts: face.pts.map(v => world(it, v)), vn: face.vn.map(v => dirOf(it, v)), col: paintColor(it.paint, face) });
+    });
+    for (const t of tris) {
+      const c = mul(t.pts.reduce((a, q) => add(a, q), [0, 0, 0]), 1 / t.pts.length), sh = clamp(0.35 + 0.65 * Math.abs(dot(t.vn[0], sun)), 0.35, 1) * (0.35 + 0.65 * L);
+      const cam = t.pts.map(toCam), fill = rgb(mul(t.col, sh));
+      items.push({ d: len(sub(c, eye)), draw: () => drawPoly(cam, fill) });
+    }
+  }
   items.sort((a, b) => b.d - a.d);
   for (const it of items) it.draw();
 
