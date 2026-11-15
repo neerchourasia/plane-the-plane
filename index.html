@@ -3101,6 +3101,7 @@ for (let i = 0; i < Math.round(160 * WS * WS); i++) {
 
 // ---------- plane state
 let plane;
+let wreck = null;   // the wreck after a crash (see startWreck)
 let view = 0; // 0 = chase, 1 = cockpit, 2 = side
 const VIEW_NAMES = ['CHASE', 'COCKPIT', 'SIDE', 'LOOK LEFT', 'LOOK RIGHT'];
 const inCockpit = () => view === 1 || view === 3 || view === 4;
@@ -3125,6 +3126,7 @@ setGfx(gfxMode);
 let race = null;   // the air race in progress, if any
 let cruise = false;   // fast-forward through a long-haul job's real distance
 function resetPlane(fuel = 1) {
+  wreck = null;
   cruise = false;
   race = null;
   plane = {
@@ -3151,11 +3153,27 @@ for (let i = 0; i < TER_N; i++) {
   }
 }
 const town = towns[0] || { x: 1500, z: 1500 };
+// the most open water on the map (the point farthest from any shore), for the teleport menu
+function findOpenSea() {
+  let best = null;
+  for (let x = -TER_HALF + 300; x < TER_HALF - 300; x += 150) for (let z = -TER_HALF + 300; z < TER_HALF - 300; z += 150) {
+    if (terrainAt(x, z) > WATER + 0.1) continue;
+    let clear = 2400;
+    for (let a = 0; a < 16 && clear > 0; a++) {
+      const dx = Math.cos(a * Math.PI / 8), dz = Math.sin(a * Math.PI / 8);
+      for (let d = 150; d <= clear; d += 150) if (terrainAt(x + dx * d, z + dz * d) > WATER + 0.1) { clear = d - 150; break; }
+    }
+    if (!best || clear > best.clear) best = { x, z, clear };
+  }
+  return best;
+}
+const sea = findOpenSea();
 const SPOTS = [
   { name: 'Runway', x: START.pos[0], z: START.pos[2], hdg: 0, air: false },
   { name: 'Mountain peak', x: peak.x, z: peak.z, hdg: 0.6, air: true },
   { name: 'Lowland lake', x: low.x, z: low.z, hdg: 1.2, air: true },
   { name: 'Town', x: town.x, z: town.z, hdg: 0, air: true },
+  ...(sea ? [{ name: sea.clear >= 700 ? 'Open sea (seaplanes land on the water)' : 'Open water (the biggest lake)', x: sea.x, z: sea.z, hdg: 0.8, air: true, sea: true }] : []),
   ...AIRPORTS.map(a => ({ name: `${a.code} ${a.name}`, x: a.x, z: a.z, hdg: a.hdgRad, air: false, ground: true }))
 ];
 
@@ -4119,6 +4137,8 @@ function drawWorld() {
 function teleportTo(spot) {
   resetPlane(plane.fuel);
   const p = plane;
+  // a seaplane starts on the water; every other plane starts in the air above it
+  if (spot.sea && p.model.float) spot = { ...spot, air: false, ground: true };
   if (spot.ground) {
     p.pos = [spot.x, terrainAt(spot.x, spot.z) + 0.1, spot.z];
     p.yaw = spot.hdg;
@@ -4161,7 +4181,114 @@ function playBurst(seconds, volume, cutoff) {
   src.start();
 }
 function buzz(pattern) { try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* not supported */ } }
+// ---------- the wreck: a crash is not a freeze. The plane tumbles and slides to a stop, parts break off and bounce, a bad impact explodes, fuel burns with
+// black smoke, the paint chars, and a crash into water splashes and sinks.
+function startWreck(msg) {
+  const p = plane, ground = terrainAt(p.pos[0], p.pos[2]), water = ground <= WATER + 0.1, speed = p.speed, m = p.model;
+  const size = Math.max(m.ext.len, m.ext.span);
+  const w = wreck = {
+    t: 0, water, sink: 0, landed: p.pos[1] - ground < 2, size, hit: speed,
+    explode: !water && !/Floats/.test(msg) && (speed > 38 || (speed > 22 && p.fuel > 0.25)),
+    vx: p.vel[0] * 0.85, vy: Math.min(p.vel[1], 2), vz: p.vel[2] * 0.85,
+    spinRoll: (Math.random() - 0.5) * Math.min(7, speed / 7), spinYaw: (Math.random() - 0.5) * Math.min(3, speed / 18),
+    fire: 0, pieces: []
+  };
+  w.fire = !water && p.fuel > 0.04 && speed > 9 ? 100 : 0;
+  // pieces thrown off: wing and tail sized slabs, a few small fragments
+  const n = clamp(4 + Math.round(speed / 9), 4, 16), pal = [m.spec.body, m.spec.wing.col, [50, 52, 58], [140, 144, 152], m.spec.fin.col];
+  for (let k = 0; k < n; k++) {
+    const big = k < 3, sz = big ? size * (0.12 + Math.random() * 0.12) : size * (0.02 + Math.random() * 0.05), a = Math.random() * 6.283, burst = 3 + Math.random() * (speed * 0.35 + 4);
+    w.pieces.push({ x: p.pos[0] + (Math.random() - 0.5) * size * 0.4, y: p.pos[1] + 0.5, z: p.pos[2] + (Math.random() - 0.5) * size * 0.4,
+      vx: w.vx * 0.6 + Math.cos(a) * burst, vy: 2 + Math.random() * (speed * 0.18 + 3), vz: w.vz * 0.6 + Math.sin(a) * burst,
+      rot: Math.random() * 6.283, rv: (Math.random() - 0.5) * 8, sx: sz * (big ? 2.4 : 1), sy: sz * 0.12 + 0.05, sz: sz * (big ? 0.9 : 1), col: pal[k % pal.length], dead: false });
+  }
+  if (water) { playBurst(1.6, 0.5, 1800); setTimeout(() => playBurst(2.0, 0.35, 500), 200); }
+  else {
+    playBurst(2.2, 0.7, 500);   // metal tearing
+    if (w.explode) { setTimeout(() => playBurst(3.0, 0.9, 150), 120); setTimeout(() => playBurst(1.6, 0.5, 700), 350); }
+  }
+  buzz(w.explode ? [300, 80, 300, 80, 600] : [200, 80, 200]);
+}
+function wreckStep(dt) {
+  const w = wreck, p = plane;
+  if (!w) return;
+  w.t += dt;
+  const gy = terrainAt(p.pos[0], p.pos[2]) + p.model.gearLen * 0.35;
+  if (!w.landed) {
+    w.vy -= 9.8 * dt;
+    if (p.pos[1] <= gy) { w.landed = true; w.vy = 0; w.spinRoll += (Math.random() - 0.5) * 2; }
+  }
+  if (w.landed) {
+    const k = w.water ? 2.6 : 0.55 + (w.t < 4 ? 0.3 : 0.9);   // sliding friction: the plane scrapes to a stop
+    const f = Math.exp(-k * dt); w.vx *= f; w.vz *= f; w.vy = 0;
+    w.spinRoll *= Math.exp(-1.5 * dt); w.spinYaw *= Math.exp(-1.2 * dt);
+    if (w.water) w.sink = Math.min(6, w.sink + dt * 0.5);
+  }
+  p.pos[0] += w.vx * dt; p.pos[2] += w.vz * dt; p.pos[1] += w.vy * dt;
+  if (w.landed) p.pos[1] = gy - w.sink; else p.pos[1] = Math.max(p.pos[1], gy);
+  p.roll += w.spinRoll * dt; p.yaw += w.spinYaw * dt;
+  p.pitch += (-0.12 - wrapPi(p.pitch)) * Math.min(1, 1.5 * dt);
+  p.vel = [w.vx, w.vy, w.vz]; p.speed = Math.hypot(w.vx, w.vz);
+  for (const q of w.pieces) {
+    if (q.dead) continue;
+    q.vy -= 9.8 * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; q.rot += q.rv * dt;
+    const g = terrainAt(q.x, q.z);
+    if (q.y < g + q.sy) {
+      q.y = g + q.sy;
+      if (q.vy < -1.2) { q.vy *= -0.3; q.vx *= 0.7; q.vz *= 0.7; q.rv *= 0.6; } else { q.vy = 0; const f = Math.exp(-2.2 * dt); q.vx *= f; q.vz *= f; q.rv *= f; }
+      if (g <= WATER + 0.1) { q.dead = q.t = true; }
+    }
+  }
+  if (w.fire > 0) w.fire -= dt;
+}
+// the burning, smoking wreck and the first moments of an explosion, drawn on the screen layer
+// the paint of a wreck blackens as it burns
+function charred(c) {
+  if (!wreck) return c;
+  const k = clamp(1 - wreck.t * (wreck.explode ? 0.35 : 0.08), wreck.explode ? 0.16 : 0.45, 1);
+  return [c[0] * k, c[1] * k, c[2] * k];
+}
+function drawWreck() {
+  const w = wreck, p = plane;
+  if (!w || !lastCam || !pilot || homeOpen) return;
+  const now = performance.now() / 1000, base = wildProject([p.pos[0], p.pos[1] + 0.5, p.pos[2]]);
+  if (!base) return;
+  const unit = clamp(F * w.size / base[2], 6, 400);
+  if (w.explode && w.t < 1.8) {
+    const k = w.t / 1.8, r = unit * (0.6 + 2.2 * Math.sqrt(k)), a = 1 - k * k, g = ctx.createRadialGradient(base[0], base[1], 0, base[0], base[1], r);
+    g.addColorStop(0, `rgba(255,250,210,${a.toFixed(2)})`); g.addColorStop(0.35, `rgba(255,170,50,${(a * 0.85).toFixed(2)})`); g.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(base[0], base[1], r, 0, 6.3); ctx.fill();
+  }
+  if (w.water && w.t < 4) {
+    for (let j = 0; j < 10; j++) {
+      const k = clamp(w.t / 4, 0, 1), rise = Math.sin(Math.PI * clamp(k * 1.4 - j * 0.02, 0, 1)), s = wildProject([p.pos[0] + Math.cos(j) * w.size * k, p.pos[1] + rise * w.size * 1.2, p.pos[2] + Math.sin(j) * w.size * k]);
+      if (!s) continue;
+      ctx.fillStyle = `rgba(235,245,255,${(0.7 * (1 - k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(s[0], s[1], clamp(F * w.size * 0.25 / s[2], 2, 60), 0, 6.3); ctx.fill();
+    }
+  }
+  if (w.fire > 0 || w.t < 3) {
+    const f = clamp((w.fire > 0 ? w.fire : 0) / 20, 0, 1) + (w.t < 3 ? 0.4 : 0);
+    // flames licking over the wreck
+    for (let j = 0; j < 5; j++) {
+      const s = wildProject([p.pos[0] + Math.sin(now * 3 + j * 2) * w.size * 0.25, p.pos[1] + 0.6 + (0.5 + 0.5 * Math.sin(now * 7 + j)) * w.size * 0.15, p.pos[2] + Math.cos(now * 2.4 + j * 1.7) * w.size * 0.25]);
+      if (!s) continue;
+      const r = clamp(F * w.size * 0.22 / s[2], 3, 70) * clamp(f, 0.3, 1), g = ctx.createRadialGradient(s[0], s[1], 0, s[0], s[1], r);
+      g.addColorStop(0, 'rgba(255,230,120,0.95)'); g.addColorStop(0.5, 'rgba(255,110,20,0.7)'); g.addColorStop(1, 'rgba(255,60,0,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, 6.3); ctx.fill();
+    }
+    // a column of black smoke
+    for (let j = 0; j < 14; j++) {
+      const rise = ((now * 0.18 + j / 14) % 1), h = rise * w.size * 9 * clamp(f + 0.2, 0.3, 1), drift = rise * w.size * 2.2;
+      const s = wildProject([p.pos[0] + drift + Math.sin(now + j) * 2, p.pos[1] + 1 + h, p.pos[2] + drift * 0.4]);
+      if (!s) continue;
+      ctx.fillStyle = `rgba(${28 + rise * 30},${28 + rise * 30},${30 + rise * 32},${(0.55 * (1 - rise * 0.75) * clamp(f + 0.3, 0.3, 1)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(s[0], s[1], clamp(F * (w.size * 0.45 + rise * w.size * 1.8) / s[2], 3, 130), 0, 6.3); ctx.fill();
+    }
+  }
+}
 function crash(msg) {
+  startWreck(msg);
+  view = 0;   // look at the wreck from outside
   playBurst(1.2, 0.5, 900);
   plane.crashed = true;
   plane.crashMsg = msg;
@@ -4989,6 +5116,8 @@ function render() {
     target = add(p.pos, mul(ax.f, 5));
     camUp = [0, 1, 0];
   }
+  // an impact shakes the view hard for a moment
+  if (wreck && wreck.t < 1.2) { const k = (1.2 - wreck.t) * Math.min(6, 1 + wreck.hit / 12); target[0] += (Math.random() - 0.5) * k; target[1] += (Math.random() - 0.5) * k; target[2] += (Math.random() - 0.5) * k; }
   // in a stall the whole view buffets
   if (p.stallShake) { const k = 0.5 + 2.5 * p.stallShake; target[0] += (Math.random() - 0.5) * k; target[1] += (Math.random() - 0.5) * k; target[2] += (Math.random() - 0.5) * k; }
   // the camera never sinks into a hill
@@ -5280,6 +5409,8 @@ function render() {
     const cx = x + Math.sin(yaw) * 3.3, cz = z + Math.cos(yaw) * 3.3;
     pushBox(cx, y + 1.4, cz, yaw, 2.4, 1.2, 1.7, [200, 210, 220]);
   }
+  // thrown-off pieces of the wreck
+  if (wreck) for (const q of wreck.pieces) if (!q.dead) pushBox(q.x, q.y, q.z, q.rot, q.sx, q.sy, q.sz, charred(q.col));
   // the aircraft itself: every face of its mesh, painted with the rest of the scene
   const toWorld = v => add(p.pos, add(add(mul(ax.right, v[0]), mul(ax.up, v[1])), mul(ax.f, v[2])));
   // hidden when a hill is in the way
@@ -5296,9 +5427,9 @@ function render() {
     const pics = lv ? picsOf(lv) : {};
     for (const face of p.model.mesh) {
       const pic = !face.spin && PIC_SLOT[face.role] ? pics[PIC_SLOT[face.role]] : null;
-      planeTris.push({ pts: (face.spin ? spun(face.pts) : face.spinH ? spunH(face.pts) : face.pts).map(toWorld), vn: face.vn.map(toDir), col: paintColor(lv, face), pic, uvFor: d => decalUVs(p.model, face, d) });
+      planeTris.push({ pts: (face.spin ? spun(face.pts) : face.spinH ? spunH(face.pts) : face.pts).map(toWorld), vn: face.vn.map(toDir), col: charred(paintColor(lv, face)), pic: wreck ? null : pic, uvFor: d => decalUVs(p.model, face, d) });
     }
-    if (p.gear) for (const face of p.model.gear) planeTris.push({ pts: face.pts.map(toWorld), vn: face.vn.map(toDir), col: face.col });
+    if (p.gear) for (const face of p.model.gear) planeTris.push({ pts: face.pts.map(toWorld), vn: face.vn.map(toDir), col: charred(face.col) });
     // a faint disc where the propeller turns
     if (p.model.spec.prop) {
       const hubW = toWorld(p.model.hub), hq = toCam(hubW);
@@ -7526,6 +7657,7 @@ function frame(now) {
   }
   lastFrameAt = now;
   if (photoMode) { photoStep(dt); render(); drawPhotoHud(); if (snapRequested) { snapRequested = false; takePhoto(); } clipFrame(); requestAnimationFrame(frame); return; }
+  if (plane.crashed) wreckStep(dt);
   for (let i = 0; i < 4; i++) update(dt / 4);   // sub-steps keep the physics stable
   render();
   ctx = fxCtx;
@@ -7553,6 +7685,7 @@ function frame(now) {
   drawChecklist();
   drawLandingReport();
   drawFire();
+  drawWreck();
   drawCruise();
   drawRain(now);
   drawMinimap();

@@ -21,6 +21,17 @@
       const d = Math.max(m.ext.len, m.ext.span) * 1.9;
       photoMode = true; look([d * 0.8, yLow + m.ext.len * 0.12, d * 0.55], [0, yLow + m.ext.len * 0.04, 0]);
       window.__gear = true;
+    } else if (name.startsWith('crash')) {
+      // a 737 flies into the ground at speed; crash-0 is the moment of the explosion, crash-1 is a few seconds later, crash-sea is a crash into water
+      const sea = name.endsWith('sea');
+      save.selected = MODELS.findIndex(m => m.name === (name === 'crash-prop' ? 'Cessna 172' : '737')); resetPlane(1);
+      const p = plane, spot = sea ? (findOpenSea() || { x: 0, z: 0 }) : { x: 0, z: -300 };
+      p.pos = [spot.x, terrainAt(spot.x, spot.z) + 60, spot.z]; p.yaw = 0.4; p.pitch = -0.3; p.vel = [Math.sin(0.4) * 70, -22, Math.cos(0.4) * 70]; p.speed = 73; p.onGround = false; p.gear = false; p.throttle = 0.8;
+      for (let i = 0; i < 400 && !p.crashed; i++) update(0.02);
+      const secs = name.endsWith('-1') || name.endsWith('sea') || name === 'crash-prop' ? 5 : 0.7;
+      for (let i = 0; i < Math.round(secs / 0.05); i++) wreckStep(0.05);
+      window.wreckStep = () => {};   // freeze the wreck at this moment for the picture
+      view = 0;
     } else if (name.startsWith('horizon')) {
       // a level look at the horizon from 250 m up; horizon-N looks toward the Nth compass quarter
       const q = Number(name.slice(8) || 0), yaw = q * Math.PI / 2, h0 = terrainAt(0, 0) + 250;
