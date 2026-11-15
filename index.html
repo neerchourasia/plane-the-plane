@@ -5853,7 +5853,7 @@ function drawHUD(now) {
   ctx.fillStyle = p.throttle > 0.9 ? PAL.warn : PAL.good;
   ctx.fillRect(bx, by, bw * p.throttle, 10);
 
-  if (!p.onGround && !p.crashed && p.speed < stallSpeed(p) + 4 && Math.floor(now / 250) % 2 === 0) {
+  if (p.stalled && !p.model.heli && !p.onGround && !p.crashed && Math.floor(now / 250) % 2 === 0) {
     setFont(28, true);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
