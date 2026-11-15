@@ -21,6 +21,11 @@
       const d = Math.max(m.ext.len, m.ext.span) * 1.9;
       photoMode = true; look([d * 0.8, yLow + m.ext.len * 0.12, d * 0.55], [0, yLow + m.ext.len * 0.04, 0]);
       window.__gear = true;
+    } else if (name.startsWith('horizon')) {
+      // a level look at the horizon from 250 m up; horizon-N looks toward the Nth compass quarter
+      const q = Number(name.slice(8) || 0), yaw = q * Math.PI / 2, h0 = terrainAt(0, 0) + 250;
+      plane.pos = [0, h0 - 300, 0];
+      photoMode = true; photoCam.pos = [0, h0, 0]; photoCam.yaw = yaw; photoCam.pitch = 0;
     } else if (name === 'apron') {
       const a = AIRPORTS.find(x => x.code === 'LHR'), h = a.hdgRad, side = a.complex.side, ux = Math.sin(h), uz = Math.cos(h), sx = Math.cos(h) * side, sz = -Math.sin(h) * side;
       plane.pos = [a.x - ux * 80, a.apron.y + 40, a.z - uz * 80];

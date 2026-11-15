@@ -5356,7 +5356,10 @@ function render() {
   terrainItems.sort((a, b) => b.d - a.d);
   for (const it of terrainItems) {
     if (useGL && it.wp && it.d > 250 && hiddenByLand(eye, it.wp)) continue;
+    // far roads, runways and cells fade into the haze with the ground under them, instead of staying dark and looking like they float in the sky
+    ctx.globalAlpha = useGL && it.d != null ? 1 - fogAt(it.d) * 0.95 : 1;
     it.draw();
+    ctx.globalAlpha = 1;
   }
 
   // plane shadow on the ground, cast along the sun direction and fading with height
