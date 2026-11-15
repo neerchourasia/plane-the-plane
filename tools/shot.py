@@ -14,6 +14,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('scene'); ap.add_argument('out')
     ap.add_argument('--region', default='classic'); ap.add_argument('--size', default='1280,720')
+    ap.add_argument('--gpu', action='store_true', help='use the real graphics card (Metal on a Mac) instead of the software renderer')
     args = ap.parse_args()
     chrome = next((c for c in CHROMES if os.path.exists(c)), None)
     if not chrome: sys.exit('Chrome not found')
@@ -30,7 +31,8 @@ def main():
         helper = os.path.join(ROOT, '.shot-region.html')
         open(helper, 'w').write("<script>localStorage.setItem('plane-the-plane-region','%s');location.href='/index.html?shot=%s';</script>" % (args.region, args.scene))
         url = 'http://127.0.0.1:%d/.shot-region.html' % port
-    cmd = [chrome, '--headless=new', '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--user-data-dir=' + profile,
+    gfx = ['--use-angle=metal', '--ignore-gpu-blocklist', '--enable-gpu'] if args.gpu else ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
+    cmd = [chrome, '--headless=new', '--no-sandbox'] + gfx + ['--user-data-dir=' + profile,
            '--window-size=' + args.size, '--virtual-time-budget=14000', '--screenshot=' + os.path.abspath(args.out), url]
     try: subprocess.run(cmd, capture_output=True, timeout=240)
     finally:
