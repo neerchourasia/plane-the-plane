@@ -249,6 +249,15 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
 <button id="gfxBtn" title="Graphics: auto lowers the detail on a slow device">GFX AUTO</button>
 <button id="setBtn" title="Settings (Esc)">SETTINGS</button>
 <div id="loading" style="position:fixed;inset:0;z-index:50;background:#08121f;color:#cfe8f5;display:flex;align-items:center;justify-content:center;font:16px ui-monospace,Menlo,Consolas,monospace;text-align:center"><div style="display:flex;flex-direction:column;align-items:center"><style>@keyframes crashbob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-6px) rotate(3deg)}}</style><img src="favicon.svg" alt="" width="96" height="96" style="animation:crashbob 1.2s ease-in-out infinite;margin-bottom:18px">Plane the Plane<br><span style="font-size:12px;opacity:.7">building the world...</span></div></div>
+<div id="emailAsk" style="position:fixed;inset:0;z-index:35;background:rgba(5,10,20,.92);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace">
+  <div style="background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;width:min(420px,92vw)">
+    <h2 style="margin:0 0 6px;font-size:22px">Add your email</h2>
+    <p style="margin:0 0 12px;font-size:13px;opacity:.8">Your pilot does not have an email yet. Please add one.</p>
+    <input id="emailAskIn" type="email" maxlength="80" autocomplete="email" placeholder="you@example.com" style="width:100%;box-sizing:border-box;padding:8px;margin-bottom:10px">
+    <div><button id="emailAskSave">Save email</button> <button id="emailAskSkip">Not now</button></div>
+    <p id="emailAskMsg" style="font-size:13px;color:#ffb4b4;margin:8px 0 0"></p>
+  </div>
+</div>
 <div id="login">
   <div class="card">
     <h2>Plane the Plane</h2>
@@ -7325,6 +7334,7 @@ async function resumeSession() {
   try {
     const data = await api('/api/save', { token });
     signIn(name, data.save);
+    if (data.needEmail) askEmail();
   } catch (e) {
     if (e.status === 401) { storeDel(TOKEN_KEY); return; }   // the sign-in ran out: show the sign-in screen
     if (local) signIn(name, local);                           // no connection: play on the copy in this browser
@@ -7465,6 +7475,21 @@ function buildAirstrip(name) {
   setTimeout(refreshStrips, 1500);
   return null;
 }
+// pilots made before emails were asked for are asked once at each sign-in until they add one
+function askEmail() {
+  const box = document.getElementById('emailAsk'), inp = document.getElementById('emailAskIn'), msg = document.getElementById('emailAskMsg');
+  box.style.display = 'flex'; msg.textContent = ''; inp.value = ''; inp.focus();
+  const close = () => { box.style.display = 'none'; };
+  document.getElementById('emailAskSkip').onclick = close;
+  document.getElementById('emailAskSave').onclick = async () => {
+    const email = inp.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'Enter a valid email address.'; return; }
+    try {
+      await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'email', email } });
+      close(); flashNote('EMAIL SAVED');
+    } catch (e) { msg.textContent = e.status ? e.message : "Can't reach the server. Try again."; }
+  };
+}
 function signIn(name, saved) {
   pilot = name;
   save = { ...JSON.parse(JSON.stringify(DEFAULT_SAVE)), ...(saved || {}) };
@@ -7536,6 +7561,7 @@ async function submitLogin(create) {
     } else {
       signIn(data.name, data.save);
     }
+    if (data.needEmail) askEmail();
   } catch (e) {
     if (e.noServer) {
       msg.textContent = e.message;

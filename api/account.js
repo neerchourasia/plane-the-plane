@@ -16,6 +16,14 @@ export default async function handler(req, res) {
     return res.json({ ok: true });
   }
 
+  if (b.action === 'email') {
+    const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 80) return res.status(400).json({ error: 'Enter a valid email address.' });
+    pilot.email = email;
+    await r.set('pilot:' + name, JSON.stringify(pilot));
+    return res.json({ ok: true });
+  }
+
   // the other actions ask for the current password
   if (b.action === 'password' || b.action === 'delete') {
     const current = typeof b.password === 'string' ? b.password : (typeof b.oldPassword === 'string' ? b.oldPassword : '');

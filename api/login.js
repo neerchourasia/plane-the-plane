@@ -19,5 +19,5 @@ export default async function handler(req, res) {
   await r.set('pilot:' + name, JSON.stringify(pilot));
   const token = await startSession(name);
   const save = await r.get('save:' + name);
-  res.json({ token, name, save: save ? JSON.parse(save) : DEFAULT_SAVE });
+  res.json({ token, name, save: save ? JSON.parse(save) : DEFAULT_SAVE, needEmail: !pilot.email });
 }

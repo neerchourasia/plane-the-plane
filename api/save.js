@@ -8,7 +8,8 @@ export default async function handler(req, res) {
   if (!(await r.exists('pilot:' + name))) return res.status(401).json({ error: 'Sign in again.' });
   if (req.method === 'GET') {
     const save = await r.get('save:' + name);
-    return res.json({ save: save ? JSON.parse(save) : DEFAULT_SAVE });
+    const pilot = JSON.parse(await r.get('pilot:' + name));
+    return res.json({ save: save ? JSON.parse(save) : DEFAULT_SAVE, needEmail: !pilot.email });
   }
   if (req.method === 'PUT') {
     const save = req.body;
