@@ -198,7 +198,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <p class="hint" id="acctWho"></p>
     <h3>Change password</h3>
     <label>Current password <input id="acctOld" type="password" maxlength="64" autocomplete="current-password"></label>
-      <label id="loginEmailRow" style="display:none">Email <input id="loginEmail" type="email" maxlength="80" autocomplete="email" placeholder="you@example.com"></label>
+      <label id="loginEmailRow">Email (to create a pilot) <input id="loginEmail" type="email" maxlength="80" autocomplete="email" placeholder="you@example.com"></label>
     <label>New password <input id="acctNew" type="password" maxlength="64" autocomplete="new-password"></label>
     <button id="acctChange">Change password</button>
     <h3>Delete this account</h3>
@@ -7543,9 +7543,8 @@ async function submitLogin(create) {
   const emailRow = document.getElementById('loginEmailRow'), emailIn = document.getElementById('loginEmail');
   const email = emailIn.value.trim();
   if (create) {
-    if (emailRow.style.display === 'none') { emailRow.style.display = ''; emailIn.focus(); msg.textContent = 'Enter your email, then press Create pilot again.'; return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'Enter a valid email address.'; emailIn.focus(); return; }
-  } else emailRow.style.display = 'none';
+  }
   msg.textContent = 'Signing in...';
   try {
     const data = await api(create ? '/api/signup' : '/api/login', { method: 'POST', body: create ? { name, password: pass, email } : { name, password: pass } });
