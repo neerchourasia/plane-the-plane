@@ -1,4 +1,4 @@
-import { db, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ipOf } from '../lib/accounts.js';
+import { db, EMAIL_RE, isAdmin, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ipOf } from '../lib/accounts.js';
 
 // Account actions for the signed-in pilot: sign out on the server, change the password, delete the account.
 export default async function handler(req, res) {
@@ -18,10 +18,38 @@ export default async function handler(req, res) {
 
   if (b.action === 'email') {
     const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : '';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 80) return res.status(400).json({ error: 'Enter a valid email address.' });
+    if (!EMAIL_RE.test(email) || email.length > 80) return res.status(400).json({ error: 'Enter a valid email address.' });
+    const owner = await r.get('email:' + email);
+    if (owner && owner !== name) return res.status(409).json({ error: 'That email is already used by another pilot.' });
+    if (pilot.email && pilot.email !== email) await r.del('email:' + pilot.email);
+    await r.set('email:' + email, name);
     pilot.email = email;
     await r.set('pilot:' + name, JSON.stringify(pilot));
     return res.json({ ok: true });
+  }
+
+  // admin tools, only for the admin pilot (its email is ADMIN_EMAIL)
+  if (b.action === 'admin_list' || b.action === 'admin_delete') {
+    if (!isAdmin(pilot)) return res.status(403).json({ error: 'Admin only.' });
+    if (b.action === 'admin_delete') {
+      const target = typeof b.target === 'string' ? b.target.trim().toLowerCase() : '';
+      if (!target || target === name) return res.status(400).json({ error: 'Pick another pilot to delete.' });
+      const traw = await r.get('pilot:' + target);
+      const t = traw ? JSON.parse(traw) : null;
+      await r.del(['pilot:' + target, 'save:' + target, 'presence:' + target].concat(t && t.email ? ['email:' + t.email] : []));
+      await r.sRem('pilots', target);
+      await r.zRem('online', target);
+      return res.json({ ok: true });
+    }
+    const names = (await r.sMembers('pilots')).sort();
+    const list = [];
+    for (const n of names) {
+      const [p, sv] = await Promise.all([r.get('pilot:' + n), r.get('save:' + n)]);
+      if (!p) continue;
+      const pp = JSON.parse(p), ss = sv ? JSON.parse(sv) : {};
+      list.push({ name: n, email: pp.email || '', created: pp.created || '', lastSignIn: pp.lastSignIn || '', coins: ss.coins || 0, xp: ss.xp || 0 });
+    }
+    return res.json({ pilots: list });
   }
 
   // the other actions ask for the current password
@@ -43,7 +71,7 @@ export default async function handler(req, res) {
       return res.json({ ok: true });
     }
 
-    await r.del(['pilot:' + name, 'save:' + name, 'presence:' + name, 'session:' + tokenOf(req)]);
+    await r.del(['pilot:' + name, 'save:' + name, 'presence:' + name, 'session:' + tokenOf(req)].concat(pilot.email ? ['email:' + pilot.email] : []));
     await r.sRem('pilots', name);
     await r.zRem('online', name);
     return res.json({ ok: true });

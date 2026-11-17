@@ -1,6 +1,6 @@
 // Offline support: after the first visit, the game loads without wifi.
 // Bump CACHE when any shipped file changes so browsers pick up the new version.
-const CACHE = 'plane-the-plane-v47';
+const CACHE = 'plane-the-plane-v48';
 const FILES = ['./', './index.html', './favicon.svg', './manifest.webmanifest', './icon-192.png', './icon-512.png', './earth.jpg'];
 
 self.addEventListener('install', event => {

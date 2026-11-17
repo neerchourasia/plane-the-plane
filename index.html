@@ -205,6 +205,11 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <label>Password <input id="acctDel" type="password" maxlength="64" autocomplete="current-password"></label>
     <button id="acctDelete" class="danger">Delete my account</button>
     <p class="hint" id="acctMsg"></p>
+    <div id="adminBox" style="display:none">
+      <h3>Admin: every pilot who signed up</h3>
+      <div id="adminList" style="max-height:220px;overflow:auto;font-size:12px"></div>
+      <button id="adminRefresh">Refresh list</button>
+    </div>
     <button id="acctClose">Close</button>
   </div>
 </div>
@@ -7402,8 +7407,40 @@ function toggleAccount() {
     document.getElementById('acctWho').textContent = `Signed in as ${pilot}`;
     document.getElementById('acctMsg').textContent = '';
     for (const id of ['acctOld', 'acctNew', 'acctDel']) document.getElementById(id).value = '';
+    loadAdmin();
   }
 }
+// the admin section shows only when the server says this pilot is the admin
+async function loadAdmin() {
+  const box = document.getElementById('adminBox'), list = document.getElementById('adminList');
+  box.style.display = 'none';
+  try {
+    const data = await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'admin_list' } });
+    box.style.display = '';
+    list.textContent = '';
+    if (!data.pilots.length) list.textContent = 'No pilots yet.';
+    for (const p of data.pilots) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid #1d2c47';
+      const info = document.createElement('span');
+      info.style.flex = '1';
+      info.textContent = `${p.name} · ${p.email || 'no email'} · ${p.coins} coins · last in ${p.lastSignIn.slice(0, 10)}`;
+      row.append(info);
+      if (p.name !== pilot) {
+        const del = document.createElement('button');
+        del.textContent = 'Delete'; del.className = 'danger';
+        del.onclick = async () => {
+          if (!confirm(`Delete pilot ${p.name} and their save? This cannot be undone.`)) return;
+          try { await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'admin_delete', target: p.name } }); loadAdmin(); }
+          catch (e) { document.getElementById('acctMsg').textContent = e.message; }
+        };
+        row.append(del);
+      }
+      list.append(row);
+    }
+  } catch (e) { /* not the admin: the section stays hidden */ }
+}
+document.getElementById('adminRefresh').onclick = loadAdmin;
 async function changePassword() {
   const msg = document.getElementById('acctMsg');
   const oldPassword = document.getElementById('acctOld').value, newPassword = document.getElementById('acctNew').value;
