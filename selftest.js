@@ -57,6 +57,22 @@
       keys.KeyW = false;
       return { ok: stalled && !p.crashed && !p.stalled && p.pos[1] > 600, detail: `stalled=${stalled} crashed=${p.crashed} height ${Math.round(p.pos[1])} m, lowest ${Math.round(minY)} m` };
     });
+    check('flight school: the stall recovery lesson can be completed', calm(() => {
+      useModel('Trainer'); startLesson(LESSONS.findIndex(l => l.id === 'stall'));
+      const p = plane; let t = 0, done = false;
+      for (let i = 0; i < 2400 && !p.crashed; i++) {
+        t += 0.05;
+        // a pilot's recovery: once it has stalled, full power, nose down, wings level, then ease the nose up
+        keys.KeyW = lesson && lesson.step >= 2 && p.pitch > -0.1 && p.speed < stallSpeed(p) * 1.3;
+        keys.KeyS = lesson && lesson.step >= 5 && p.pitch < -0.05;
+        if (lesson && lesson.step >= 5) p.throttle = 0.6; else if (lesson && lesson.step >= 1) p.throttle = Math.max(p.throttle, 1);
+        update(0.05); checkLesson();
+        if (!lesson) { done = true; break; }
+      }
+      keys.KeyW = keys.KeyS = false;
+      const step = lesson ? lesson.step : -1; lesson = null;
+      return { ok: done && !p.crashed, detail: `${done ? 'completed' : 'stuck on step ' + step} after ${Math.round(t)} s${p.crashed ? ', crashed: ' + p.crashMsg : ''}` };
+    }));
     for (const name of ['737', 'Trainer']) {
       check('ILS autoland in the practice lesson: ' + name, calm(() => {
         windT = 700; useModel(name); startLesson(LESSONS.findIndex(l => l.id === 'practice'));

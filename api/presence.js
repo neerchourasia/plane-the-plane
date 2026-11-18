@@ -21,7 +21,7 @@ export default async function handler(req, res) {
   const now = Date.now();
   // a chat message, if one was sent: at most one every 2 seconds, 80 characters, public to everyone online
   const say = typeof b.say === 'string' ? b.say.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 80) : '';
-  if (say && (await r.set('chatlimit:' + name, '1', { NX: true, EX: 2 }))) {
+  if (say && !(await r.sIsMember('muted', name)) && (await r.set('chatlimit:' + name, '1', { NX: true, EX: 2 }))) {
     await r.lPush('chatlog', JSON.stringify({ t: now, name, callsign: mine.callsign, text: say }));
     await r.lTrim('chatlog', 0, 39);
   }

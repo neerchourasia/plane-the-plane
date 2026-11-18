@@ -281,6 +281,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <div>
       <button id="loginIn">Sign in</button>
       <button id="loginNew">Create pilot</button>
+      <button id="loginForgot">Forgot password</button>
     </div>
     <p id="loginMsg" class="hint"></p>
     <div id="pilots"></div>
@@ -1987,6 +1988,26 @@ const LESSONS = [
       { text: 'Turn through 90 degrees', ok: (p, l) => Math.abs(wrapPi(p.yaw - l.startYaw)) >= 1.4 },
       { text: 'Level the wings (release A and D)', ok: p => Math.abs(p.roll) < 0.08 },
       { text: 'Be within 60 m of your starting height', ok: (p, l) => Math.abs(p.pos[1] - l.startAlt) < 60 }
+    ]
+  },
+  {
+    id: 'stall', name: 'Stall recovery',
+    setup: l => {
+      resetPlane(1);
+      const p = plane;
+      // high and just under stall speed, so the wing quits flying within a second or two
+      const gy = terrainAt(0, 0);
+      p.onGround = false; p.gear = false; p.pos = [0, gy + 900, 0]; p.yaw = 0;
+      const v = stallSpeed(p) * 0.95; p.vel = [0, 0, v]; p.speed = v; p.throttle = 0.15; p.pitch = 0.25;
+      l.sawStall = false;
+    },
+    steps: [
+      { text: 'You are flying too slowly. Wait for the stall: the nose drops and STALL flashes', ok: (p, l) => { if (p.stalled) l.sawStall = true; return l.sawStall; } },
+      { text: 'Add full power: press 9', ok: p => p.throttle >= 0.9 },
+      { text: 'Push the nose down to pick up speed: hold W (the down arrow)', ok: p => p.pitch < 0.05 },
+      { text: 'Keep the wings level: release A and D', ok: p => Math.abs(p.roll) < 0.2 },
+      { text: 'Fly again: get above stall speed with the STALL warning gone', ok: p => !p.stalled && p.speed > stallSpeed(p) * 1.2 },
+      { text: 'Ease the nose back to level and settle the throttle: press 6', ok: p => Math.abs(p.pitch) < 0.12 && p.throttle < 0.85 }
     ]
   },
   {
@@ -7447,7 +7468,7 @@ async function loadAdmin() {
       row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid #1d2c47';
       const info = document.createElement('span');
       info.style.flex = '1';
-      info.textContent = `${p.online ? '● ' : ''}${p.name} · ${p.email || 'no email'} · ${p.coins} coins · joined ${p.created.slice(0, 10)} · last in ${p.lastSignIn.slice(0, 10)}`;
+      info.textContent = `${p.online ? '● ' : ''}${p.banned ? '[BANNED] ' : ''}${p.muted ? '[MUTED] ' : ''}${p.name} · ${p.email || 'no email'} · ${p.coins} coins · joined ${p.created.slice(0, 10)} · last in ${p.lastSignIn.slice(0, 10)}`;
       row.append(info);
       const coinBtn = document.createElement('button');
       coinBtn.textContent = 'Coins';
@@ -7464,6 +7485,12 @@ async function loadAdmin() {
           act({ action: 'admin_password', target: p.name }, d => { document.getElementById('adminMsg').textContent = `New password for ${p.name}: ${d.password}  (shown once, pass it on)`; }).catch(fail);
         };
         row.append(pw);
+        for (const [kind, on, label] of [['admin_mute', p.muted, 'Mute'], ['admin_ban', p.banned, 'Ban']]) {
+          const b = document.createElement('button');
+          b.textContent = on ? 'Un' + label.toLowerCase() : label;
+          b.onclick = () => act({ action: kind, target: p.name, on: !on }, loadAdmin).catch(fail);
+          row.append(b);
+        }
         const del = document.createElement('button');
         del.textContent = 'Delete'; del.className = 'danger';
         del.onclick = async () => {
@@ -7651,6 +7678,23 @@ async function submitLogin(create) {
   }
 }
 document.getElementById('loginIn').onclick = () => submitLogin(false);
+document.getElementById('loginForgot').onclick = async () => {
+  const msg = document.getElementById('loginMsg'), email = document.getElementById('loginEmail').value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { msg.textContent = 'Type the email you signed up with in the Email box, then press Forgot password.'; return; }
+  try { const d = await api('/api/forgot', { method: 'POST', body: { email } }); msg.textContent = d.message; }
+  catch (e) { msg.textContent = e.status ? e.message : "Can't reach the server. Check your wifi and try again."; }
+};
+// a reset link from the email opens the game with ?reset=token: ask for the new password
+{
+  const token = new URLSearchParams(location.search).get('reset');
+  if (token) setTimeout(async () => {
+    const pw = prompt('Choose a new password (at least 4 characters)');
+    if (!pw) return;
+    const msg = document.getElementById('loginMsg');
+    try { const d = await api('/api/reset', { method: 'POST', body: { token, password: pw } }); history.replaceState(null, '', location.pathname); document.getElementById('loginName').value = d.name; msg.textContent = 'Password changed. Sign in with the new password.'; }
+    catch (e) { msg.textContent = e.message; }
+  }, 800);
+}
 document.getElementById('loginNew').onclick = () => submitLogin(true);
 document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitLogin(false); });
 document.getElementById('switchPilot').onclick = signOut;

@@ -9,6 +9,7 @@ export default async function handler(req, res) {
   const raw = await r.get('pilot:' + name);
   if (!raw) return res.status(404).json({ error: 'No pilot with that name. Create one instead.' });
   const pilot = JSON.parse(raw);
+  if (await r.sIsMember('banned', name)) return res.status(403).json({ error: 'This pilot has been banned.' });
   if (await blocked(name, ipOf(req))) return res.status(429).json({ error: 'Too many wrong passwords. Try again in 15 minutes.' });
   if (!samePassword(password, pilot.salt, pilot.hash)) {
     await noteFail(name, ipOf(req));

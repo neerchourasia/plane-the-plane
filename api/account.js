@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   }
 
   // admin tools, only for the admin pilot (its email is ADMIN_EMAIL)
-  if (['admin_list', 'admin_delete', 'admin_coins', 'admin_password'].includes(b.action)) {
+  if (['admin_list', 'admin_delete', 'admin_coins', 'admin_password', 'admin_ban', 'admin_mute'].includes(b.action)) {
     if (!isAdmin(pilot)) return res.status(403).json({ error: 'Admin only.' });
     if (b.action === 'admin_delete') {
       const target = typeof b.target === 'string' ? b.target.trim().toLowerCase() : '';
@@ -39,7 +39,17 @@ export default async function handler(req, res) {
       const t = traw ? JSON.parse(traw) : null;
       await r.del(['pilot:' + target, 'save:' + target, 'presence:' + target].concat(t && t.email ? ['email:' + t.email] : []));
       await r.sRem('pilots', target);
+      await r.sRem('banned', target);
+      await r.sRem('muted', target);
       await r.zRem('online', target);
+      return res.json({ ok: true });
+    }
+    if (b.action === 'admin_ban' || b.action === 'admin_mute') {
+      const target = typeof b.target === 'string' ? b.target.trim().toLowerCase() : '';
+      if (!target || target === name || !(await r.exists('pilot:' + target))) return res.status(400).json({ error: 'Pick another pilot.' });
+      const set = b.action === 'admin_ban' ? 'banned' : 'muted';
+      if (b.on) await r.sAdd(set, target); else await r.sRem(set, target);
+      if (b.action === 'admin_ban' && b.on) { await r.del('presence:' + target); await r.zRem('online', target); }
       return res.json({ ok: true });
     }
     if (b.action === 'admin_coins' || b.action === 'admin_password') {
@@ -65,12 +75,13 @@ export default async function handler(req, res) {
     }
     const names = (await r.sMembers('pilots')).sort();
     const now = Date.now();
+    const banned = new Set(await r.sMembers('banned')), muted = new Set(await r.sMembers('muted'));
     const list = [];
     for (const n of names) {
       const [p, sv, seen] = await Promise.all([r.get('pilot:' + n), r.get('save:' + n), r.zScore('online', n)]);
       if (!p) continue;
       const pp = JSON.parse(p), ss = sv ? JSON.parse(sv) : {};
-      list.push({ name: n, email: pp.email || '', created: pp.created || '', lastSignIn: pp.lastSignIn || '', coins: ss.coins || 0, xp: ss.xp || 0, online: seen != null && seen > now - 60000 });
+      list.push({ name: n, email: pp.email || '', created: pp.created || '', lastSignIn: pp.lastSignIn || '', coins: ss.coins || 0, xp: ss.xp || 0, online: seen != null && seen > now - 60000, banned: banned.has(n), muted: muted.has(n) });
     }
     return res.json({ pilots: list });
   }
