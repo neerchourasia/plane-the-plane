@@ -212,6 +212,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
   <div class="card" style="background:#0c1626;border:1px solid #2a3d5c;border-radius:10px;padding:18px 22px;color:#e8fff5;width:min(560px,94vw)">
     <h2 style="margin:0 0 6px">Admin</h2>
     <p class="hint" id="adminCount"></p>
+    <input id="adminSearch" placeholder="Search name or email" style="width:100%;box-sizing:border-box;margin:4px 0 8px;padding:6px;font:inherit;background:#0b1424;color:#e8fff5;border:1px solid #2a3d5c;border-radius:6px">
     <div id="adminList" style="max-height:60vh;overflow:auto;font-size:12px"></div>
     <p class="hint" id="adminMsg"></p>
     <button id="adminRefresh">Refresh list</button>
@@ -7433,17 +7434,36 @@ async function loadAdmin() {
   const list = document.getElementById('adminList');
   try {
     const data = await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'admin_list' } });
-    document.getElementById('adminCount').textContent = `${data.pilots.length} pilot${data.pilots.length === 1 ? '' : 's'} signed up`;
+    const online = data.pilots.filter(p => p.online).length, totalCoins = data.pilots.reduce((a, p) => a + p.coins, 0);
+    document.getElementById('adminCount').textContent = `${data.pilots.length} pilot${data.pilots.length === 1 ? '' : 's'} signed up · ${online} online now · ${totalCoins} coins in total`;
     list.textContent = '';
-    if (!data.pilots.length) list.textContent = 'No pilots yet.';
-    for (const p of data.pilots) {
+    const q = document.getElementById('adminSearch').value.trim().toLowerCase();
+    const shown = data.pilots.filter(p => !q || p.name.includes(q) || p.email.includes(q));
+    if (!shown.length) list.textContent = data.pilots.length ? 'No pilot matches.' : 'No pilots yet.';
+    const act = (body, ok) => api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body }).then(ok);
+    const fail = e => { document.getElementById('adminMsg').textContent = e.message; };
+    for (const p of shown) {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid #1d2c47';
       const info = document.createElement('span');
       info.style.flex = '1';
-      info.textContent = `${p.name} · ${p.email || 'no email'} · ${p.coins} coins · last in ${p.lastSignIn.slice(0, 10)}`;
+      info.textContent = `${p.online ? '● ' : ''}${p.name} · ${p.email || 'no email'} · ${p.coins} coins · joined ${p.created.slice(0, 10)} · last in ${p.lastSignIn.slice(0, 10)}`;
       row.append(info);
+      const coinBtn = document.createElement('button');
+      coinBtn.textContent = 'Coins';
+      coinBtn.onclick = () => {
+        const v = prompt(`Set coins for ${p.name}`, String(p.coins));
+        if (v !== null) act({ action: 'admin_coins', target: p.name, coins: v }, loadAdmin).catch(fail);
+      };
+      row.append(coinBtn);
       if (p.name !== pilot) {
+        const pw = document.createElement('button');
+        pw.textContent = 'Reset password';
+        pw.onclick = () => {
+          if (!confirm(`Give ${p.name} a new temporary password? Their old password stops working.`)) return;
+          act({ action: 'admin_password', target: p.name }, d => { document.getElementById('adminMsg').textContent = `New password for ${p.name}: ${d.password}  (shown once, pass it on)`; }).catch(fail);
+        };
+        row.append(pw);
         const del = document.createElement('button');
         del.textContent = 'Delete'; del.className = 'danger';
         del.onclick = async () => {
@@ -7458,6 +7478,7 @@ async function loadAdmin() {
   } catch (e) { document.getElementById('adminMsg').textContent = e.status === 403 ? 'Admin only.' : e.message; }
 }
 document.getElementById('adminRefresh').onclick = loadAdmin;
+document.getElementById('adminSearch').oninput = loadAdmin;
 document.getElementById('adminClose').onclick = toggleAdmin;
 async function changePassword() {
   const msg = document.getElementById('acctMsg');

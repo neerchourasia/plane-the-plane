@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { db, EMAIL_RE, isAdmin, sessionName, tokenOf, samePassword, newSalt, hashPassword, blocked, noteFail, clearFails, ipOf } from '../lib/accounts.js';
 
 // Account actions for the signed-in pilot: sign out on the server, change the password, delete the account.
@@ -29,7 +30,7 @@ export default async function handler(req, res) {
   }
 
   // admin tools, only for the admin pilot (its email is ADMIN_EMAIL)
-  if (b.action === 'admin_list' || b.action === 'admin_delete') {
+  if (['admin_list', 'admin_delete', 'admin_coins', 'admin_password'].includes(b.action)) {
     if (!isAdmin(pilot)) return res.status(403).json({ error: 'Admin only.' });
     if (b.action === 'admin_delete') {
       const target = typeof b.target === 'string' ? b.target.trim().toLowerCase() : '';
@@ -41,13 +42,35 @@ export default async function handler(req, res) {
       await r.zRem('online', target);
       return res.json({ ok: true });
     }
+    if (b.action === 'admin_coins' || b.action === 'admin_password') {
+      const target = typeof b.target === 'string' ? b.target.trim().toLowerCase() : '';
+      const traw = target ? await r.get('pilot:' + target) : null;
+      if (!traw) return res.status(404).json({ error: 'No such pilot.' });
+      if (b.action === 'admin_coins') {
+        const coins = Math.round(Number(b.coins));
+        if (!Number.isFinite(coins) || coins < 0 || coins > 100000000) return res.status(400).json({ error: 'Coins must be a number from 0 to 100000000.' });
+        const sraw = await r.get('save:' + target);
+        const sv = sraw ? JSON.parse(sraw) : {};
+        sv.coins = coins;
+        await r.set('save:' + target, JSON.stringify(sv));
+        return res.json({ ok: true });
+      }
+      // a new temporary password for a pilot who forgot theirs: shown once to the admin, who passes it on
+      const t = JSON.parse(traw);
+      const temp = crypto.randomBytes(6).toString('base64url');
+      t.salt = newSalt();
+      t.hash = hashPassword(temp, t.salt);
+      await r.set('pilot:' + target, JSON.stringify(t));
+      return res.json({ ok: true, password: temp });
+    }
     const names = (await r.sMembers('pilots')).sort();
+    const now = Date.now();
     const list = [];
     for (const n of names) {
-      const [p, sv] = await Promise.all([r.get('pilot:' + n), r.get('save:' + n)]);
+      const [p, sv, seen] = await Promise.all([r.get('pilot:' + n), r.get('save:' + n), r.zScore('online', n)]);
       if (!p) continue;
       const pp = JSON.parse(p), ss = sv ? JSON.parse(sv) : {};
-      list.push({ name: n, email: pp.email || '', created: pp.created || '', lastSignIn: pp.lastSignIn || '', coins: ss.coins || 0, xp: ss.xp || 0 });
+      list.push({ name: n, email: pp.email || '', created: pp.created || '', lastSignIn: pp.lastSignIn || '', coins: ss.coins || 0, xp: ss.xp || 0, online: seen != null && seen > now - 60000 });
     }
     return res.json({ pilots: list });
   }
