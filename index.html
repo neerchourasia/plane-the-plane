@@ -205,12 +205,17 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
     <label>Password <input id="acctDel" type="password" maxlength="64" autocomplete="current-password"></label>
     <button id="acctDelete" class="danger">Delete my account</button>
     <p class="hint" id="acctMsg"></p>
-    <div id="adminBox" style="display:none">
-      <h3>Admin: every pilot who signed up</h3>
-      <div id="adminList" style="max-height:220px;overflow:auto;font-size:12px"></div>
-      <button id="adminRefresh">Refresh list</button>
-    </div>
     <button id="acctClose">Close</button>
+  </div>
+</div>
+<div id="admin" style="position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(4,8,18,0.9);z-index:22">
+  <div class="card" style="background:#0c1626;border:1px solid #2a3d5c;border-radius:10px;padding:18px 22px;color:#e8fff5;width:min(560px,94vw)">
+    <h2 style="margin:0 0 6px">Admin</h2>
+    <p class="hint" id="adminCount"></p>
+    <div id="adminList" style="max-height:60vh;overflow:auto;font-size:12px"></div>
+    <p class="hint" id="adminMsg"></p>
+    <button id="adminRefresh">Refresh list</button>
+    <button id="adminClose">Close</button>
   </div>
 </div>
 <div id="regions">
@@ -244,6 +249,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
       <button id="homeRaces">Air races</button>
       <button id="homeRegion">Region</button>
       <button id="homeAccount">Account</button>
+      <button id="homeAdmin" style="display:none">Admin</button>
       <button id="homeSwitch">Switch pilot</button>
     </div>
     <p class="hint">Fly takes you to the runway. Press Esc to come back here from the air.</p>
@@ -3241,6 +3247,7 @@ addEventListener('keydown', e => {
   if (settingsOpen && e.code === 'Escape') return toggleSettings();
   if (regionsOpen && e.code === 'Escape') return toggleRegions();
   if (accountOpen && e.code === 'Escape') return toggleAccount();
+  if (adminOpen && e.code === 'Escape') return toggleAdmin();
   if (racesOpen && e.code === 'Escape') return toggleRaces();
   if (schoolOpen && e.code === 'Escape') return toggleSchool();
   if (worldOpen && (e.code === 'Escape' || e.code === 'KeyU')) return toggleWorld();
@@ -4427,7 +4434,7 @@ function updateHeli(dt) {
 
 function update(dt) {
   const p = plane;
-  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen || accountOpen || regionsOpen) return;
+  if (!pilot || homeOpen || p.crashed || hangarOpen || teleportOpen || liveryOpen || worldOpen || schoolOpen || racesOpen || accountOpen || adminOpen || regionsOpen) return;
   const m = p.model;
   windT += dt;
   fogEnd = Math.min(FOG_END - fogLevel() * 2800, lowGfx() ? 2600 : 1e9);
@@ -7407,16 +7414,26 @@ function toggleAccount() {
     document.getElementById('acctWho').textContent = `Signed in as ${pilot}`;
     document.getElementById('acctMsg').textContent = '';
     for (const id of ['acctOld', 'acctNew', 'acctDel']) document.getElementById(id).value = '';
-    loadAdmin();
   }
 }
-// the admin section shows only when the server says this pilot is the admin
+// the Admin tab is its own panel; its home button shows only when the server says this pilot is the admin
+let adminOpen = false;
+function toggleAdmin() {
+  adminOpen = !adminOpen;
+  for (const k in keys) keys[k] = false;
+  document.getElementById('admin').style.display = adminOpen ? 'flex' : 'none';
+  if (adminOpen) loadAdmin(); else showHome();
+}
+async function checkAdmin() {
+  const btn = document.getElementById('homeAdmin');
+  btn.style.display = 'none';
+  try { await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'admin_list' } }); btn.style.display = ''; } catch (e) { /* not the admin */ }
+}
 async function loadAdmin() {
-  const box = document.getElementById('adminBox'), list = document.getElementById('adminList');
-  box.style.display = 'none';
+  const list = document.getElementById('adminList');
   try {
     const data = await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'admin_list' } });
-    box.style.display = '';
+    document.getElementById('adminCount').textContent = `${data.pilots.length} pilot${data.pilots.length === 1 ? '' : 's'} signed up`;
     list.textContent = '';
     if (!data.pilots.length) list.textContent = 'No pilots yet.';
     for (const p of data.pilots) {
@@ -7432,15 +7449,16 @@ async function loadAdmin() {
         del.onclick = async () => {
           if (!confirm(`Delete pilot ${p.name} and their save? This cannot be undone.`)) return;
           try { await api('/api/account', { method: 'POST', token: storeGet(TOKEN_KEY), body: { action: 'admin_delete', target: p.name } }); loadAdmin(); }
-          catch (e) { document.getElementById('acctMsg').textContent = e.message; }
+          catch (e) { document.getElementById('adminMsg').textContent = e.message; }
         };
         row.append(del);
       }
       list.append(row);
     }
-  } catch (e) { /* not the admin: the section stays hidden */ }
+  } catch (e) { document.getElementById('adminMsg').textContent = e.status === 403 ? 'Admin only.' : e.message; }
 }
 document.getElementById('adminRefresh').onclick = loadAdmin;
+document.getElementById('adminClose').onclick = toggleAdmin;
 async function changePassword() {
   const msg = document.getElementById('acctMsg');
   const oldPassword = document.getElementById('acctOld').value, newPassword = document.getElementById('acctNew').value;
@@ -7549,6 +7567,7 @@ function showHome() {
   for (const k in keys) keys[k] = false;
   document.getElementById('homeWho').textContent = `Signed in as ${pilot}`;
   document.getElementById('home').style.display = 'flex';
+  checkAdmin();
 }
 function hideHome() {
   homeOpen = false;
@@ -7636,6 +7655,7 @@ document.getElementById('homeRegion').onclick = () => { hideHome(); toggleRegion
 document.getElementById('acctChange').onclick = changePassword;
 document.getElementById('acctDelete').onclick = deleteAccount;
 document.getElementById('homeAccount').onclick = () => { hideHome(); toggleAccount(); };
+document.getElementById('homeAdmin').onclick = () => { hideHome(); toggleAdmin(); };
 document.getElementById('homeRaces').onclick = () => { hideHome(); toggleRaces(); };
 document.getElementById('homeSchool').onclick = () => { hideHome(); toggleSchool(); };
 document.getElementById('homeWorld').onclick = () => { hideHome(); toggleWorld(); };
