@@ -16,6 +16,10 @@
   #soundBtn:hover,#gfxBtn:hover{background:rgba(0,0,0,.65)}
   @media (max-height: 520px) { #help { display: none; } #soundBtn, #gfxBtn, #setBtn { padding: 4px 8px; font-size: 11px; } #gfxBtn { top: 56px; } #setBtn { top: 82px; } }
   #setBtn{position:fixed;top:98px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
+  #controlsBtn{position:fixed;top:132px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
+  #controlsBtn:hover{background:rgba(0,0,0,.65)}
+  body.controlsHidden #help, body.controlsHidden #touch { display: none !important; }
+  @media (max-height: 520px) { #controlsBtn { top: 108px; padding: 4px 8px; font-size: 11px; } }
   #gfxBtn{position:fixed;top:64px;right:12px;z-index:5;background:rgba(0,0,0,.45);color:#e8fff5;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:6px 10px;font:bold 12px ui-monospace,Menlo,Consolas,monospace;cursor:pointer}
   #help{position:fixed;left:16px;bottom:12px;color:#cfe8f5;font-size:12px;line-height:1.5;opacity:.85;background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;pointer-events:none;white-space:pre}
   #hangar{position:fixed;inset:0;z-index:10;background:rgba(5,10,20,.8);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -259,6 +263,7 @@ if (REGION_ID !== 'classic') document.write('<script src="terrain-' + REGION_ID 
 <button id="soundBtn" title="Sound on or off (M)">SOUND ON</button>
 <button id="gfxBtn" title="Graphics: auto lowers the detail on a slow device">GFX AUTO</button>
 <button id="setBtn" title="Settings (Esc)">SETTINGS</button>
+<button id="controlsBtn" title="Hide or show the key list and the on-screen buttons">HIDE CONTROLS</button>
 <div id="loading" style="position:fixed;inset:0;z-index:50;background:#08121f;color:#cfe8f5;display:flex;align-items:center;justify-content:center;font:16px ui-monospace,Menlo,Consolas,monospace;text-align:center"><div style="display:flex;flex-direction:column;align-items:center"><style>@keyframes crashbob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-6px) rotate(3deg)}}</style><img src="favicon.svg" alt="" width="96" height="96" style="animation:crashbob 1.2s ease-in-out infinite;margin-bottom:18px">Plane the Plane<br><span style="font-size:12px;opacity:.7">building the world...</span></div></div>
 <div id="emailAsk" style="position:fixed;inset:0;z-index:35;background:rgba(5,10,20,.92);display:none;align-items:center;justify-content:center;color:#e8fff5;font-family:ui-monospace,Menlo,Consolas,monospace">
   <div style="background:#101a2b;border:1px solid #2a3d5c;border-radius:10px;padding:20px 24px;width:min(420px,92vw)">
@@ -7720,6 +7725,13 @@ document.getElementById('homeRegion').onclick = () => { hideHome(); toggleRegion
 document.getElementById('acctChange').onclick = changePassword;
 document.getElementById('acctDelete').onclick = deleteAccount;
 document.getElementById('homeAccount').onclick = () => { hideHome(); toggleAccount(); };
+document.getElementById('controlsBtn').onclick = () => {
+  const hidden = document.body.classList.toggle('controlsHidden');
+  document.getElementById('controlsBtn').textContent = hidden ? 'SHOW CONTROLS' : 'HIDE CONTROLS';
+  try { localStorage.setItem('plane-the-plane-controls-hidden', hidden ? '1' : '0'); } catch (e) { /* not saved */ }
+  document.getElementById('controlsBtn').blur();
+};
+try { if (localStorage.getItem('plane-the-plane-controls-hidden') === '1') document.getElementById('controlsBtn').click(); } catch (e) { /* no storage */ }
 document.getElementById('homeAdmin').onclick = () => { hideHome(); toggleAdmin(); };
 document.getElementById('homeRaces').onclick = () => { hideHome(); toggleRaces(); };
 document.getElementById('homeSchool').onclick = () => { hideHome(); toggleSchool(); };
